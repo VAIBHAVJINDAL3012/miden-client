@@ -21,22 +21,11 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{JsFuture, js_sys, wasm_bindgen};
 
 use super::{
-    AccountRecord,
-    AccountStatus,
-    BlockRelevance,
-    InputNoteRecord,
-    NoteFilter,
-    OutputNoteRecord,
-    PartialBlockchainFilter,
-    Store,
-    StoreError,
-    TransactionFilter,
+    AccountRecord, AccountStatus, BlockRelevance, InputNoteRecord, NoteFilter, OutputNoteRecord,
+    PartialBlockchainFilter, Store, StoreError, TransactionFilter,
 };
 use crate::sync::{NoteTagRecord, StateSyncUpdate};
 use crate::transaction::{TransactionRecord, TransactionStoreUpdate};
-
-#[cfg(not(target_arch = "wasm32"))]
-compile_error!("The `idxdb` feature is only supported when targeting wasm32.");
 
 pub mod account;
 pub mod chain_data;

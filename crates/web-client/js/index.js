@@ -366,6 +366,58 @@ export class WebClient {
     }
   }
 
+  async newMultisigTransaction(account, transactionRequest, transactionSummary, signatures) {
+    try {
+      if (!this.worker) {
+        return await this.wasmWebClient.newMultisigTransaction(
+          account,
+          transactionRequest,
+          transactionSummary,
+          signatures
+        );
+      }
+      const serializedAccount = account.serialize();
+      const serializedTransactionRequest = transactionRequest.serialize();
+      const serializedTransactionSummary = transactionSummary.serialize();
+      const serializedSignatures = signatures.map((signature) => signature.serialize());
+      const serializedTransactionResultBytes = await this.callMethodWithWorker(
+        MethodName.NEW_MULTISIG_TRANSACTION,
+        serializedAccount,
+        serializedTransactionRequest,
+        serializedTransactionSummary,
+        serializedSignatures
+      );
+      return wasm.TransactionResult.deserialize(
+        new Uint8Array(serializedTransactionResultBytes)
+      );
+    } catch (error) {
+      console.error("INDEX.JS: Error in newMultisigTransaction:", error.toString());
+      throw error;
+    }
+  }
+
+  async proposeMultisigTransaction(accountId, transactionRequest) {
+    try {
+      if (!this.worker) {
+        return await this.wasmWebClient.proposeMultisigTransaction(accountId, transactionRequest);
+      }
+
+      const serializedAccountId = accountId.toString();
+      const serializedTransactionRequest = transactionRequest.serialize();
+      const serializedTransactionSummaryBytes = await this.callMethodWithWorker(
+        MethodName.PROPOSE_MULTISIG_TRANSACTION,
+        serializedAccountId,
+        serializedTransactionRequest
+      );
+      return wasm.TransactionSummary.deserialize(
+        new Uint8Array(serializedTransactionSummaryBytes)
+      );
+    } catch (error) {
+      console.error("INDEX.JS: Error in proposeMultisigTransaction:", error.toString());
+      throw error;
+    }
+  }
+
   async submitTransaction(transactionResult, prover = undefined) {
     try {
       if (!this.worker) {

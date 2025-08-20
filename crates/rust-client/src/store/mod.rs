@@ -52,20 +52,15 @@ compile_error!("features `sqlite` and `idxdb` are mutually exclusive");
 #[cfg(feature = "sqlite")]
 pub mod sqlite_store;
 
-#[cfg(feature = "idxdb")]
+#[cfg(all(feature = "idxdb", target_arch = "wasm32"))]
 pub mod web_store;
 
 mod account;
 pub use account::{AccountRecord, AccountStatus, AccountUpdates};
 mod note_record;
 pub use note_record::{
-    InputNoteRecord,
-    InputNoteState,
-    NoteExportType,
-    NoteRecordError,
-    OutputNoteRecord,
-    OutputNoteState,
-    input_note_states,
+    InputNoteRecord, InputNoteState, NoteExportType, NoteRecordError, OutputNoteRecord,
+    OutputNoteState, input_note_states,
 };
 
 // STORE TRAIT

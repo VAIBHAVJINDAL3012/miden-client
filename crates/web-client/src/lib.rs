@@ -1,5 +1,6 @@
 extern crate alloc;
 use alloc::sync::Arc;
+use miden_client::multisig::MultisigClient;
 use std::fmt::Write;
 
 use miden_client::keystore::WebKeyStore;
@@ -17,6 +18,7 @@ pub mod export;
 pub mod helpers;
 pub mod import;
 pub mod models;
+pub mod multisig;
 pub mod new_account;
 pub mod new_transactions;
 pub mod notes;
@@ -29,7 +31,7 @@ pub mod utils;
 pub struct WebClient {
     store: Option<Arc<WebStore>>,
     keystore: Option<WebKeyStore<RpoRandomCoin>>,
-    inner: Option<Client<WebKeyStore<RpoRandomCoin>>>,
+    inner: Option<MultisigClient<WebKeyStore<RpoRandomCoin>>>,
 }
 
 impl Default for WebClient {
@@ -45,7 +47,9 @@ impl WebClient {
         WebClient { inner: None, store: None, keystore: None }
     }
 
-    pub(crate) fn get_mut_inner(&mut self) -> Option<&mut Client<WebKeyStore<RpoRandomCoin>>> {
+    pub(crate) fn get_mut_inner(
+        &mut self,
+    ) -> Option<&mut MultisigClient<WebKeyStore<RpoRandomCoin>>> {
         self.inner.as_mut()
     }
 
@@ -83,25 +87,25 @@ impl WebClient {
 
         let web_rpc_client = Arc::new(TonicRpcClient::new(&endpoint, 0));
 
-        self.inner = Some(
-            Client::new(
-                web_rpc_client,
-                Box::new(rng),
-                web_store.clone(),
-                Some(Arc::new(keystore.clone())),
-                ExecutionOptions::new(
-                    Some(MAX_TX_EXECUTION_CYCLES),
-                    MIN_TX_EXECUTION_CYCLES,
-                    false,
-                    false,
-                )
-                .expect("Default executor's options should always be valid"),
-                None,
-                None,
+        let client = Client::new(
+            web_rpc_client,
+            Box::new(rng),
+            web_store.clone(),
+            Some(Arc::new(keystore.clone())),
+            ExecutionOptions::new(
+                Some(MAX_TX_EXECUTION_CYCLES),
+                MIN_TX_EXECUTION_CYCLES,
+                false,
+                false,
             )
-            .await
-            .map_err(|err| js_error_with_context(err, "Failed to create client"))?,
-        );
+            .expect("Default executor's options should always be valid"),
+            None,
+            None,
+        )
+        .await
+        .map_err(|err| js_error_with_context(err, "Failed to create client"))?;
+
+        self.inner = Some(MultisigClient::new(client));
         self.store = Some(web_store);
         self.keystore = Some(keystore);
 
