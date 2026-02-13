@@ -414,13 +414,30 @@ impl TransactionRequestBuilder {
         )
         .map_err(TransactionRequestError::NoteCreationError)?;
 
-        let mut output_notes = vec![OutputNote::Full(p2id_note)];
-        if let Some(remainder) = remainder_note {
-            output_notes.push(OutputNote::Full(remainder));
+        // Note args: [0, 0, inflight_amount, fill_amount]
+        let note_args = Word::from([
+            Felt::new(0),
+            Felt::new(0),
+            Felt::new(inflight_amount),
+            Felt::new(fill_amount),
+        ]);
+
+        // Register output notes as expected future notes (created by the script, not the account)
+        let p2id_details = NoteDetails::from(&p2id_note);
+        let p2id_tag = p2id_note.metadata().tag();
+        let p2id_recipient = p2id_note.recipient().clone();
+
+        let mut expected_future_notes = vec![(p2id_details, p2id_tag)];
+        let mut expected_recipients = vec![p2id_recipient];
+
+        if let Some(ref remainder) = remainder_note {
+            expected_future_notes.push((NoteDetails::from(remainder), remainder.metadata().tag()));
+            expected_recipients.push(remainder.recipient().clone());
         }
 
-        self.input_notes(vec![(pswap_note.clone(), None)])
-            .own_output_notes(output_notes)
+        self.input_notes(vec![(pswap_note.clone(), Some(note_args))])
+            .expected_future_notes(expected_future_notes)
+            .expected_output_recipients(expected_recipients)
             .build()
     }
 
