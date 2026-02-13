@@ -406,14 +406,13 @@ impl TransactionRequestBuilder {
         fill_amount: u64,
         inflight_amount: u64,
     ) -> Result<TransactionRequest, TransactionRequestError> {
-        let (p2id_note, remainder_note) =
-            miden_swapp::PswapNote::create_output_notes(
-                pswap_note,
-                consumer_account_id,
-                fill_amount,
-                inflight_amount,
-            )
-            .map_err(TransactionRequestError::NoteCreationError)?;
+        let (p2id_note, remainder_note) = miden_swapp::PswapNote::create_output_notes(
+            pswap_note,
+            consumer_account_id,
+            fill_amount,
+            inflight_amount,
+        )
+        .map_err(TransactionRequestError::NoteCreationError)?;
 
         let mut output_notes = vec![OutputNote::Full(p2id_note)];
         if let Some(remainder) = remainder_note {
@@ -433,11 +432,7 @@ impl TransactionRequestBuilder {
         self,
         pswap_note: Note,
     ) -> Result<TransactionRequest, TransactionRequestError> {
-        use miden_protocol::ZERO;
-
-        let note_args = Word::from([ZERO, ZERO, ZERO, ZERO]);
-
-        self.input_notes(vec![(pswap_note, Some(note_args))]).build()
+        self.input_notes(vec![(pswap_note, None)]).build()
     }
 
     // FINALIZE BUILDER
