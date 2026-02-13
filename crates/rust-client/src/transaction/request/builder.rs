@@ -10,14 +10,7 @@ use miden_protocol::crypto::merkle::InnerNodeInfo;
 use miden_protocol::crypto::merkle::store::MerkleStore;
 use miden_protocol::errors::NoteError;
 use miden_protocol::note::{
-    Note,
-    NoteAttachment,
-    NoteDetails,
-    NoteId,
-    NoteRecipient,
-    NoteTag,
-    NoteType,
-    PartialNote,
+    Note, NoteAttachment, NoteDetails, NoteId, NoteRecipient, NoteTag, NoteType, PartialNote,
 };
 use miden_protocol::transaction::{OutputNote, TransactionScript};
 use miden_protocol::vm::AdviceMap;
@@ -25,10 +18,7 @@ use miden_protocol::{Felt, Word};
 use miden_standards::note::{create_p2id_note, create_p2ide_note, create_swap_note};
 
 use super::{
-    ForeignAccount,
-    NoteArgs,
-    TransactionRequest,
-    TransactionRequestError,
+    ForeignAccount, NoteArgs, TransactionRequest, TransactionRequestError,
     TransactionScriptTemplate,
 };
 use crate::ClientRng;
@@ -366,6 +356,88 @@ impl TransactionRequestBuilder {
         self.expected_future_notes(vec![(payback_note_details, payback_tag)])
             .own_output_notes(vec![OutputNote::Full(created_note)])
             .build()
+    }
+
+    // PSWAP BUILDERS
+    // --------------------------------------------------------------------------------------------
+
+    /// Consumes the builder and returns a [`TransactionRequest`] for creating a partial swap
+    /// (PSWAP) note.
+    ///
+    /// - `creator_account_id` is the account creating the swap.
+    /// - `offered_asset` is the asset being offered.
+    /// - `requested_asset` is the asset being requested.
+    /// - `note_type` determines the visibility of the created swap note.
+    /// - `note_attachment` is optional attachment data for the note.
+    /// - `rng` is the random number generator used to generate the serial number.
+    pub fn build_pswap_create(
+        self,
+        creator_account_id: AccountId,
+        offered_asset: Asset,
+        requested_asset: Asset,
+        note_type: NoteType,
+        note_attachment: NoteAttachment,
+        rng: &mut ClientRng,
+    ) -> Result<TransactionRequest, TransactionRequestError> {
+        let pswap_note = miden_swapp::PswapNote::create(
+            creator_account_id,
+            offered_asset,
+            requested_asset,
+            note_type,
+            note_attachment,
+            rng,
+        )
+        .map_err(TransactionRequestError::NoteCreationError)?;
+
+        self.own_output_notes(vec![OutputNote::Full(pswap_note)]).build()
+    }
+
+    /// Consumes the builder and returns a [`TransactionRequest`] for consuming (filling) a
+    /// partial swap (PSWAP) note.
+    ///
+    /// - `pswap_note` is the swap note being consumed.
+    /// - `consumer_account_id` is the account consuming the swap.
+    /// - `fill_amount` is the amount of the requested asset being provided.
+    /// - `inflight_amount` is any additional in-flight amount being provided.
+    pub fn build_pswap_consume(
+        self,
+        pswap_note: &Note,
+        consumer_account_id: AccountId,
+        fill_amount: u64,
+        inflight_amount: u64,
+    ) -> Result<TransactionRequest, TransactionRequestError> {
+        let (p2id_note, remainder_note) =
+            miden_swapp::PswapNote::create_output_notes(
+                pswap_note,
+                consumer_account_id,
+                fill_amount,
+                inflight_amount,
+            )
+            .map_err(TransactionRequestError::NoteCreationError)?;
+
+        let mut output_notes = vec![OutputNote::Full(p2id_note)];
+        if let Some(remainder) = remainder_note {
+            output_notes.push(OutputNote::Full(remainder));
+        }
+
+        self.input_notes(vec![(pswap_note.clone(), None)])
+            .own_output_notes(output_notes)
+            .build()
+    }
+
+    /// Consumes the builder and returns a [`TransactionRequest`] for canceling a partial swap
+    /// (PSWAP) note.
+    ///
+    /// - `pswap_note` is the swap note to cancel. The caller must be the creator of the note.
+    pub fn build_pswap_cancel(
+        self,
+        pswap_note: Note,
+    ) -> Result<TransactionRequest, TransactionRequestError> {
+        use miden_protocol::ZERO;
+
+        let note_args = Word::from([ZERO, ZERO, ZERO, ZERO]);
+
+        self.input_notes(vec![(pswap_note, Some(note_args))]).build()
     }
 
     // FINALIZE BUILDER
