@@ -2720,6 +2720,7 @@ dependencies = [
  "miden-client-sqlite-store",
  "miden-protocol",
  "miden-standards",
+ "miden-swapp",
  "miden-testing",
  "rand 0.9.2",
  "tokio",
