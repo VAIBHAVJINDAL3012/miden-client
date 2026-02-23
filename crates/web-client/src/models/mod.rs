@@ -93,6 +93,7 @@ pub mod partial_note;
 pub mod program;
 pub mod proven_transaction;
 pub mod provers;
+pub mod pswap_request_result;
 pub mod public_key;
 pub mod rpo256;
 pub mod signature;

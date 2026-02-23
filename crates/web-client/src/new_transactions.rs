@@ -2,11 +2,8 @@ use miden_client::ClientError;
 use miden_client::asset::FungibleAsset;
 use miden_client::note::{BlockNumber, Note as NativeNote, NoteAttachment as NativeNoteAttachment};
 use miden_client::transaction::{
-    PaymentNoteDescription,
-    ProvenTransaction as NativeProvenTransaction,
-    SwapTransactionData,
-    TransactionExecutorError,
-    TransactionRequest as NativeTransactionRequest,
+    PaymentNoteDescription, ProvenTransaction as NativeProvenTransaction, SwapTransactionData,
+    TransactionExecutorError, TransactionRequest as NativeTransactionRequest,
     TransactionRequestBuilder as NativeTransactionRequestBuilder,
     TransactionStoreUpdate as NativeTransactionStoreUpdate,
     TransactionSummary as NativeTransactionSummary,
@@ -15,9 +12,11 @@ use wasm_bindgen::prelude::*;
 
 use crate::models::NoteType;
 use crate::models::account_id::AccountId;
+use crate::models::fungible_asset::FungibleAsset;
 use crate::models::note::Note;
 use crate::models::proven_transaction::ProvenTransaction;
 use crate::models::provers::TransactionProver;
+use crate::models::pswap_request_result::PswapRequestResult;
 use crate::models::transaction_id::TransactionId;
 use crate::models::transaction_request::TransactionRequest;
 use crate::models::transaction_result::TransactionResult;
@@ -420,7 +419,12 @@ impl WebClient {
         let native_note = NativeNote::from(pswap_note);
 
         let pswap_consume_request = NativeTransactionRequestBuilder::new()
-            .build_pswap_consume(&native_note, consumer_account_id.into(), fill_amount, inflight_amount)
+            .build_pswap_consume(
+                &native_note,
+                consumer_account_id.into(),
+                fill_amount,
+                inflight_amount,
+            )
             .map_err(|err| {
                 js_error_with_context(err, "failed to create pswap consume transaction request")
             })?;
@@ -442,5 +446,34 @@ impl WebClient {
             })?;
 
         Ok(pswap_cancel_request.into())
+    }
+
+    /// Discovers matching pswap notes on chain and builds a [`TransactionRequest`] that
+    /// consumes them (sorted by best exchange rate). Does **not** submit the transaction.
+    ///
+    /// Use the returned `TransactionRequest` with `submitNewTransaction` for local execution,
+    /// or with the wallet adapter's `createCustomTransaction` for wallet-signed execution.
+    #[wasm_bindgen(js_name = "buildPswapRequest")]
+    pub async fn build_pswap_request(
+        &mut self,
+        account_id: AccountId,
+        offered_asset: FungibleAsset,
+        requested_asset: FungibleAsset,
+        note_type: NoteType,
+    ) -> Result<PswapRequestResult, JsValue> {
+        let client = self
+            .get_mut_inner()
+            .ok_or_else(|| JsValue::from_str("Client not initialized"))?;
+
+        let (tx_request, maybe_note_id) = Box::pin(client.build_pswap_request(
+            account_id.into(),
+            offered_asset.into(),
+            requested_asset.into(),
+            note_type.into(),
+        ))
+        .await
+        .map_err(|err| js_error_with_context(err, "failed to build pswap request"))?;
+
+        Ok(PswapRequestResult::new(tx_request.into(), maybe_note_id.map(|id| id.into())))
     }
 }
