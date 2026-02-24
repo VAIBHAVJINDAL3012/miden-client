@@ -297,6 +297,19 @@ fn try_match_pswap_note(
         return None;
     }
 
+    // Skip notes with unfavorable exchange rate.
+    // The consumer expects at least `requested.amount()` of B for `offered.amount()` of A.
+    // This note offers `note_off_amount` of B and requests `note_req_amount` of A.
+    // The note's rate is favorable iff:
+    //   note_off_amount / note_req_amount >= requested.amount() / offered.amount()
+    // Rearranged to avoid floating-point:
+    //   note_off_amount * offered.amount() >= note_req_amount * requested.amount()
+    let note_rate_lhs = (note_off_amount as u128) * (offered.amount() as u128);
+    let note_rate_rhs = (note_req_amount as u128) * (requested.amount() as u128);
+    if note_rate_lhs < note_rate_rhs {
+        return None;
+    }
+
     Some(MatchingPswapNote {
         record: record.clone(),
         offered_amount: note_off_amount,
