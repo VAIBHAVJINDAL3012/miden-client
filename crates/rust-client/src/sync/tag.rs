@@ -1,6 +1,7 @@
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
+use miden_protocol::Felt;
 use miden_protocol::account::{Account, AccountId};
 use miden_protocol::note::{NoteId, NoteTag};
 use miden_tx::utils::serde::{
@@ -85,6 +86,13 @@ pub enum NoteTagSource {
     Note(NoteId),
     /// Tag manually added by the user.
     User,
+    /// Tag automatically registered when a PSWAP order was created on this
+    /// client, so the chain's remainder notes are delivered via sync. The
+    /// `Felt` is the originating order's `order_id` (== `serial[1]` of the
+    /// original PSWAP), which gives each subscription a unique source so
+    /// reference-counting is row-based: two orders on the same asset pair
+    /// produce two rows with the same `tag` but different sources.
+    PswapAssetPair(Felt),
 }
 
 impl NoteTagRecord {
@@ -130,6 +138,12 @@ impl Serializable for NoteTagSource {
                 note_id.write_into(target);
             },
             NoteTagSource::User => target.write_u8(2),
+            // Discriminant 3 — appended after the existing variants to keep
+            // every pre-PSWAP row deserialising unchanged. Do not renumber.
+            NoteTagSource::PswapAssetPair(order_id) => {
+                target.write_u8(3);
+                order_id.write_into(target);
+            },
         }
     }
 }
@@ -140,6 +154,7 @@ impl Deserializable for NoteTagSource {
             0 => Ok(NoteTagSource::Account(AccountId::read_from(source)?)),
             1 => Ok(NoteTagSource::Note(NoteId::read_from(source)?)),
             2 => Ok(NoteTagSource::User),
+            3 => Ok(NoteTagSource::PswapAssetPair(Felt::read_from(source)?)),
             val => Err(DeserializationError::InvalidValue(format!("Invalid tag source: {val}"))),
         }
     }
