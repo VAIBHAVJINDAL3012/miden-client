@@ -35,11 +35,17 @@ miden-client              = { default-features = false, path = "crates/rust-clie
 miden-client-sqlite-store = { default-features = false, path = "crates/sqlite-store", version = "0.15.0" }
 
 # Miden protocol dependencies
-miden-protocol        = { branch = "next", default-features = false, git = "https://github.com/0xMiden/protocol.git" }
-miden-standards       = { branch = "next", default-features = false, git = "https://github.com/0xMiden/protocol.git" }
-miden-testing         = { branch = "next", default-features = false, git = "https://github.com/0xMiden/protocol.git" }
-miden-tx              = { branch = "next", default-features = false, git = "https://github.com/0xMiden/protocol.git" }
-miden-tx-batch-prover = { branch = "next", default-features = false, git = "https://github.com/0xMiden/protocol.git" }
+# Pinned to the `pswap-discovery-attachment` branch on the inicio-labs fork
+# (corresponds to upstream PR 0xMiden/protocol#2909) so the client can call
+# PswapNote::payback_note / remainder_note for chain reconstruction during
+# sync. The branch is not yet on upstream; restore
+# `branch = "next", git = "https://github.com/0xMiden/protocol.git"` once
+# the PR lands.
+miden-protocol        = { branch = "pswap-discovery-attachment", default-features = false, git = "https://github.com/inicio-labs/protocol.git" }
+miden-standards       = { branch = "pswap-discovery-attachment", default-features = false, git = "https://github.com/inicio-labs/protocol.git" }
+miden-testing         = { branch = "pswap-discovery-attachment", default-features = false, git = "https://github.com/inicio-labs/protocol.git" }
+miden-tx              = { branch = "pswap-discovery-attachment", default-features = false, git = "https://github.com/inicio-labs/protocol.git" }
+miden-tx-batch-prover = { branch = "pswap-discovery-attachment", default-features = false, git = "https://github.com/inicio-labs/protocol.git" }
 
 # Miden node dependencies
 miden-node-block-producer = { branch = "next", git = "https://github.com/0xMiden/node.git" }
