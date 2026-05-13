@@ -95,10 +95,11 @@ fn note_type_to_proto(note_type: NoteType) -> i32 {
 // `NoteAttachment` in `attachment: Vec<u8>`, so this temp adapter:
 //   • on receive: deserializes the bytes into a `NoteAttachment`, wraps it in
 //     `NoteAttachments`, and constructs the new `NoteMetadata` via
-//     `NoteMetadata::new(partial, &attachments)`. The headers + commitment are
-//     derived correctly, but the attachment word is no longer reachable from
-//     the resulting `NoteMetadata` (callers must thread `NoteAttachments`
-//     alongside if they need the content — see plan §6.0).
+//     `NoteMetadata::new(partial, &attachments)`. Features that need the
+//     attachment word (e.g. PSWAP chain tracking) use
+//     `proto_metadata_into_parts` instead, which returns the
+//     `NoteAttachments` alongside the `NoteMetadata` so callers can thread
+//     them through `CommittedNote` / `FetchedNote`.
 //   • on send: emits empty attachment bytes. The new `NoteMetadata` does not
 //     retain the content so the round-trip is currently lossy. No production
 //     call site in this crate sends a `NoteMetadata` back to the node today
@@ -109,24 +110,43 @@ impl TryFrom<proto::note::NoteMetadata> for NoteMetadata {
     type Error = RpcConversionError;
 
     fn try_from(value: proto::note::NoteMetadata) -> Result<Self, Self::Error> {
-        let sender = value
-            .sender
-            .ok_or_else(|| proto::note::NoteMetadata::missing_field(stringify!(sender)))?
-            .try_into()?;
-        let note_type = note_type_from_proto(value.note_type)?;
-        let tag = NoteTag::new(value.tag);
-
-        let attachments = if value.attachment.is_empty() {
-            NoteAttachments::default()
-        } else {
-            let attachment = NoteAttachment::read_from_bytes(&value.attachment)
-                .map_err(RpcConversionError::DeserializationError)?;
-            NoteAttachments::from(attachment)
-        };
-
-        let partial = PartialNoteMetadata::new(sender, note_type).with_tag(tag);
-        Ok(NoteMetadata::new(partial, &attachments))
+        proto_metadata_into_parts(value).map(|(metadata, _attachments)| metadata)
     }
+}
+
+/// TEMP-PROTOCOL-ADAPTER companion to the [`TryFrom`] impl above for callers
+/// that need the deserialized [`NoteAttachments`] alongside the metadata.
+///
+/// The wire-format proto carries the full `NoteAttachment` bytes but the
+/// new `NoteMetadata` only retains a digest of them. PSWAP chain tracking
+/// (and any future feature that needs to read attachment word content)
+/// calls this helper from the receive path so it can thread the
+/// `NoteAttachments` value separately through `CommittedNote` /
+/// `FetchedNote` until the upstream adapter lands.
+///
+/// REVERT-WHEN: upstream adapter merges and `CommittedNote` / `FetchedNote`
+/// carry attachments natively.
+pub(crate) fn proto_metadata_into_parts(
+    value: proto::note::NoteMetadata,
+) -> Result<(NoteMetadata, NoteAttachments), RpcConversionError> {
+    let sender = value
+        .sender
+        .ok_or_else(|| proto::note::NoteMetadata::missing_field(stringify!(sender)))?
+        .try_into()?;
+    let note_type = note_type_from_proto(value.note_type)?;
+    let tag = NoteTag::new(value.tag);
+
+    let attachments = if value.attachment.is_empty() {
+        NoteAttachments::default()
+    } else {
+        let attachment = NoteAttachment::read_from_bytes(&value.attachment)
+            .map_err(RpcConversionError::DeserializationError)?;
+        NoteAttachments::from(attachment)
+    };
+
+    let partial = PartialNoteMetadata::new(sender, note_type).with_tag(tag);
+    let metadata = NoteMetadata::new(partial, &attachments);
+    Ok((metadata, attachments))
 }
 
 impl From<NoteMetadata> for proto::note::NoteMetadata {
@@ -318,6 +338,15 @@ pub struct CommittedNote {
     /// Note metadata — either full or header-only depending on whether the note has an
     /// attachment that hasn't been fetched yet.
     metadata: CommittedNoteMetadata,
+    /// TEMP-PROTOCOL-ADAPTER: The new `NoteMetadata` only retains a digest
+    /// of attachment content; the actual word(s) of every attachment live
+    /// here so per-note features (PSWAP chain tracking, future similar
+    /// features) can read them. Default-empty for `Header`-state notes —
+    /// the attachment bytes are not on the wire until the
+    /// `GetNotesById` upgrade. Promoted to a populated value by
+    /// `set_metadata` alongside the metadata upgrade.
+    /// REVERT-WHEN: upstream client-side protocol adapter lands.
+    attachments: NoteAttachments,
     /// Inclusion proof for the note in the block.
     inclusion_proof: NoteInclusionProof,
 }
@@ -328,7 +357,12 @@ impl CommittedNote {
         metadata: CommittedNoteMetadata,
         inclusion_proof: NoteInclusionProof,
     ) -> Self {
-        Self { note_id, metadata, inclusion_proof }
+        Self {
+            note_id,
+            metadata,
+            attachments: NoteAttachments::default(),
+            inclusion_proof,
+        }
     }
 
     pub fn note_id(&self) -> &NoteId {
@@ -366,12 +400,31 @@ impl CommittedNote {
         &self.metadata
     }
 
-    /// Sets the full metadata, promoting from `Header` to `Full`.
+    /// Sets the full metadata and matching attachments, promoting from
+    /// `Header` to `Full`.
     ///
-    /// Used after fetching attachment data via `GetNotesById` for notes whose sync
-    /// response only included header fields.
-    pub fn set_metadata(&mut self, metadata: NoteMetadata) {
+    /// Used after fetching attachment data via `GetNotesById` for notes
+    /// whose sync response only included header fields. The TEMP adapter
+    /// requires `attachments` to be threaded alongside the metadata
+    /// because the new `NoteMetadata` only retains a digest of the
+    /// attachment content; per-note features that read attachment word
+    /// values (PSWAP chain tracking) read from the [`Self::attachments`]
+    /// accessor below.
+    pub fn set_metadata(&mut self, metadata: NoteMetadata, attachments: NoteAttachments) {
         self.metadata = CommittedNoteMetadata::Full(metadata);
+        self.attachments = attachments;
+    }
+
+    /// Returns the note's attachments. Empty for notes still in
+    /// `Header` state (the attachment bytes have not been fetched yet
+    /// via `GetNotesById`).
+    ///
+    /// See [`Self::set_metadata`] for the TEMP-adapter rationale —
+    /// attachments are stored here so callers can read the actual word
+    /// content (not just the per-scheme commitment digest exposed on
+    /// `NoteMetadata`).
+    pub fn attachments(&self) -> &NoteAttachments {
+        &self.attachments
     }
 
     pub fn inclusion_proof(&self) -> &NoteInclusionProof {
@@ -431,11 +484,20 @@ impl TryFrom<proto::note::NoteSyncRecord> for CommittedNote {
 // ================================================================================================
 
 /// Describes the possible responses from the `GetNotesById` endpoint for a single note.
+///
+/// TEMP-PROTOCOL-ADAPTER: each variant now also carries [`NoteAttachments`].
+/// The new `NoteMetadata` only retains a digest of attachment content, so
+/// callers that need the actual word(s) (e.g. PSWAP chain tracking) read
+/// from [`Self::attachments`]. Public notes' bodies (`Note`) carry
+/// attachments natively; private notes do not, hence the extra field on
+/// the `Private` variant. REVERT-WHEN: upstream adapter lands.
 #[allow(clippy::large_enum_variant)]
 pub enum FetchedNote {
-    /// Details for a private note only include its [`NoteHeader`] and [`NoteInclusionProof`].
-    /// Other details needed to consume the note are expected to be stored locally, off-chain.
-    Private(NoteHeader, NoteInclusionProof),
+    /// Details for a private note only include its [`NoteHeader`],
+    /// [`NoteAttachments`], and [`NoteInclusionProof`]. Other details
+    /// needed to consume the note are expected to be stored locally,
+    /// off-chain.
+    Private(NoteHeader, NoteAttachments, NoteInclusionProof),
     /// Contains the full [`Note`] object alongside its [`NoteInclusionProof`].
     Public(Note, NoteInclusionProof),
 }
@@ -444,24 +506,32 @@ impl FetchedNote {
     /// Returns the note's inclusion details.
     pub fn inclusion_proof(&self) -> &NoteInclusionProof {
         match self {
-            FetchedNote::Private(_, inclusion_proof) | FetchedNote::Public(_, inclusion_proof) => {
-                inclusion_proof
-            },
+            FetchedNote::Private(_, _, inclusion_proof)
+            | FetchedNote::Public(_, inclusion_proof) => inclusion_proof,
         }
     }
 
     /// Returns the note's metadata.
     pub fn metadata(&self) -> &NoteMetadata {
         match self {
-            FetchedNote::Private(header, _) => header.metadata(),
+            FetchedNote::Private(header, _, _) => header.metadata(),
             FetchedNote::Public(note, _) => note.metadata(),
+        }
+    }
+
+    /// Returns the note's attachments. TEMP-adapter accessor — needed
+    /// because the new `NoteMetadata` only retains the attachment digest.
+    pub fn attachments(&self) -> &NoteAttachments {
+        match self {
+            FetchedNote::Private(_, attachments, _) => attachments,
+            FetchedNote::Public(note, _) => note.attachments(),
         }
     }
 
     /// Returns the note's ID.
     pub fn id(&self) -> NoteId {
         match self {
-            FetchedNote::Private(header, _) => header.id(),
+            FetchedNote::Private(header, _, _) => header.id(),
             FetchedNote::Public(note, _) => note.id(),
         }
     }
@@ -488,27 +558,31 @@ impl TryFrom<proto::note::CommittedNote> for FetchedNote {
             .note
             .ok_or_else(|| proto::note::CommittedNote::missing_field(stringify!(note)))?;
 
-        let metadata: NoteMetadata = note
+        let proto_metadata = note
             .metadata
-            .ok_or_else(|| proto::note::CommittedNote::missing_field(stringify!(note.metadata)))?
-            .try_into()?;
+            .ok_or_else(|| proto::note::CommittedNote::missing_field(stringify!(note.metadata)))?;
+        let (metadata, attachments) = proto_metadata_into_parts(proto_metadata)?;
 
         if let Some(detail_bytes) = note.details {
             let details = NoteDetails::read_from_bytes(&detail_bytes)?;
             let (assets, recipient) = details.into_parts();
 
-            // TEMP-PROTOCOL-ADAPTER: `Note::new` now takes `PartialNoteMetadata`,
-            // not `NoteMetadata`. Extract the partial half here. The full
-            // `NoteMetadata` (which would carry attachment headers + commitment)
-            // is reconstructed inside `Note::new` from the recipient + empty
-            // attachments. The proto round-trip is lossy for the attachment
-            // content until the upstream adapter threads `NoteAttachments`
-            // alongside. REVERT-WHEN: upstream adapter lands.
-            let partial = metadata.partial_metadata().clone();
-            Ok(FetchedNote::Public(Note::new(assets, partial, recipient), inclusion_proof))
+            // TEMP-PROTOCOL-ADAPTER: `Note::new` now takes
+            // `PartialNoteMetadata` and `NoteAttachments` separately.
+            // For public notes we feed both — the resulting `Note`
+            // carries the attachments natively, so `FetchedNote::Public`
+            // does not need to repeat them in a side-channel field.
+            // REVERT-WHEN: upstream adapter lands.
+            let partial = *metadata.partial_metadata();
+            let note = Note::with_attachments(assets, partial, recipient, attachments);
+            Ok(FetchedNote::Public(note, inclusion_proof))
         } else {
+            // Private notes have no body in this RPC response. We carry
+            // the deserialized attachments alongside the header so
+            // downstream consumers (PSWAP chain tracking) can read the
+            // attachment word.
             let note_header = NoteHeader::new(note_id, metadata);
-            Ok(FetchedNote::Private(note_header, inclusion_proof))
+            Ok(FetchedNote::Private(note_header, attachments, inclusion_proof))
         }
     }
 }

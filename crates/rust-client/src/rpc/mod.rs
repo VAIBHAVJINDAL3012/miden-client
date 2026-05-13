@@ -252,13 +252,21 @@ pub trait NodeRpcClient: Send + Sync {
             let fetched = self.get_notes_by_id(&note_ids).await?;
 
             for fetched_note in fetched {
-                // Fill metadata on committed notes that were missing it.
+                // Fill metadata + attachments on committed notes that
+                // were missing them. TEMP-adapter: pair (metadata,
+                // attachments) is threaded together so the per-note
+                // observer hook in `note_state_sync` can read the
+                // attachment word content (the new `NoteMetadata`
+                // retains only the digest).
                 let note_id = fetched_note.id();
                 for block in &mut all_blocks {
                     if let Some(note) = block.notes.get_mut(&note_id)
                         && note.metadata().is_none()
                     {
-                        note.set_metadata(fetched_note.metadata().clone());
+                        note.set_metadata(
+                            fetched_note.metadata().clone(),
+                            fetched_note.attachments().clone(),
+                        );
                     }
                 }
 
