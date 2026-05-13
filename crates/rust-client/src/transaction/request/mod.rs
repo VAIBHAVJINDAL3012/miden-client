@@ -560,7 +560,7 @@ mod tests {
     };
     use miden_protocol::asset::FungibleAsset;
     use miden_protocol::crypto::rand::{FeltRng, RandomCoin};
-    use miden_protocol::note::{NoteAttachment, NoteTag, NoteType};
+    use miden_protocol::note::{NoteTag, NoteType};
     use miden_protocol::testing::account_id::{
         ACCOUNT_ID_PRIVATE_FUNGIBLE_FAUCET,
         ACCOUNT_ID_REGULAR_PUBLIC_ACCOUNT_IMMUTABLE_CODE,
@@ -607,12 +607,16 @@ mod tests {
 
         let mut notes = vec![];
         for i in 0..6 {
+            // TEMP-PROTOCOL-ADAPTER: NoteAttachment::default() was
+            // removed in the new protocol; P2idNote::create now takes
+            // NoteAttachments (plural). REVERT-WHEN: upstream adapter
+            // lands.
             let note = P2idNote::create(
                 sender_id,
                 target_id,
                 vec![FungibleAsset::new(faucet_id, 100 + i).unwrap().into()],
                 NoteType::Private,
-                NoteAttachment::default(),
+                miden_protocol::note::NoteAttachments::default(),
                 &mut rng,
             )
             .unwrap();

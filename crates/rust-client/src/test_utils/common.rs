@@ -15,7 +15,12 @@ use miden_protocol::note::NoteType;
 use miden_protocol::testing::account_id::ACCOUNT_ID_REGULAR_PRIVATE_ACCOUNT_UPDATABLE_CODE;
 use miden_protocol::transaction::TransactionId;
 use miden_standards::account::auth::AuthSingleSig;
-use miden_standards::account::metadata::{FungibleTokenMetadata, TokenName};
+// TEMP-PROTOCOL-ADAPTER: `FungibleTokenMetadata` and `TokenName` moved from
+// `account::metadata` to `account::faucets`, and `TokenMetadata` is the new
+// name. `BasicFungibleFaucet` merged with `NetworkFungibleFaucet` into
+// `FungibleFaucet`. REVERT-WHEN: upstream adapter lands.
+use miden_protocol::asset::AssetAmount;
+use miden_standards::account::faucets::{FungibleFaucet, TokenName};
 use miden_standards::code_builder::CodeBuilder;
 use rand::RngCore;
 use tracing::{debug, info};
@@ -23,7 +28,6 @@ use uuid::Uuid;
 
 use crate::account::component::{
     AccountComponent,
-    BasicFungibleFaucet,
     BasicWallet,
     BurnPolicyConfig,
     MintPolicyConfig,
@@ -34,7 +38,7 @@ use crate::account::{AccountBuilder, AccountBuilderSchemaCommitmentExt, AccountT
 use crate::auth::AuthSchemeId;
 use crate::crypto::FeltRng;
 pub use crate::keystore::{FilesystemKeyStore, Keystore};
-use crate::note::{Note, NoteAttachment, P2idNote};
+use crate::note::{Note, P2idNote};
 use crate::rpc::RpcError;
 use crate::store::{NoteFilter, TransactionFilter};
 use crate::sync::SyncSummary;
@@ -126,18 +130,22 @@ pub async fn insert_new_fungible_faucet(
     let mut init_seed = [0u8; 32];
     client.rng().fill_bytes(&mut init_seed);
 
+    // TEMP-PROTOCOL-ADAPTER: previously this site stacked
+    // `FungibleTokenMetadata::builder(...)` and a separate
+    // `BasicFungibleFaucet` component; the protocol merged them into
+    // `FungibleFaucet::builder(...)` which produces a single component.
+    // REVERT-WHEN: upstream adapter lands.
     let symbol = TokenSymbol::new("TEST").unwrap();
     let name = TokenName::new(&symbol.to_string()).expect("token symbol is a valid token name");
-    let max_supply = 9_999_999_u64;
-    let token_metadata =
-        FungibleTokenMetadata::builder(name, symbol, 10, max_supply).build().unwrap();
+    let max_supply = AssetAmount::new(9_999_999_u64).expect("test max supply is valid");
+    let fungible_faucet =
+        FungibleFaucet::builder(name, symbol, 10, max_supply).build().unwrap();
 
     let account = AccountBuilder::new(init_seed)
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(storage_mode)
         .with_auth_component(auth_component)
-        .with_component(token_metadata)
-        .with_component(BasicFungibleFaucet)
+        .with_component(fungible_faucet)
         .with_components(TokenPolicyManager::new(
             PolicyAuthority::AuthControlled,
             MintPolicyConfig::AllowAll,
@@ -477,12 +485,15 @@ pub fn mint_multiple_fungible_asset(
     let notes = target_id
         .iter()
         .map(|account_id| {
+            // TEMP-PROTOCOL-ADAPTER: `NoteAttachment::default()` was
+            // removed; `P2idNote::create` now takes `NoteAttachments`.
+            // REVERT-WHEN: upstream adapter lands.
             P2idNote::create(
                 asset.faucet_id(),
                 *account_id,
                 vec![asset.into()],
                 note_type,
-                NoteAttachment::default(),
+                miden_protocol::note::NoteAttachments::default(),
                 rng,
             )
             .unwrap()

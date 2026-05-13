@@ -445,7 +445,17 @@ impl NodeRpcClient for MockRpcApi {
             let fetched_note = match note {
                 MockChainNote::Private(note_id, note_metadata, note_inclusion_proof) => {
                     let note_header = NoteHeader::new(*note_id, note_metadata.clone());
-                    FetchedNote::Private(note_header, note_inclusion_proof.clone())
+                    // TEMP-PROTOCOL-ADAPTER: `FetchedNote::Private` now
+                    // carries `NoteAttachments` alongside the header
+                    // (see commit d2cddf8f). Tests build private notes
+                    // without attachments by default; the empty
+                    // collection matches the on-the-wire shape.
+                    // REVERT-WHEN: upstream adapter lands.
+                    FetchedNote::Private(
+                        note_header,
+                        miden_protocol::note::NoteAttachments::default(),
+                        note_inclusion_proof.clone(),
+                    )
                 },
                 MockChainNote::Public(note, note_inclusion_proof) => {
                     FetchedNote::Public(note.clone(), note_inclusion_proof.clone())
