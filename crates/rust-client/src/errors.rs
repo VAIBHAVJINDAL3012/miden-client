@@ -181,6 +181,8 @@ pub enum ClientError {
         #[source]
         source: RpcError,
     },
+    #[error("PSWAP lineage error")]
+    PswapLineageError(#[source] crate::pswap::PswapLineageError),
 }
 
 // CONVERSIONS
