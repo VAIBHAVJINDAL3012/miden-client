@@ -20,12 +20,14 @@ use miden_client::note::{
     Note,
     NoteAssets,
     NoteAttachment,
+    NoteAttachments,
     NoteExecutionHint,
     NoteMetadata,
     NoteRecipient,
     NoteStorage,
     NoteTag,
     NoteType,
+    PartialNoteMetadata,
 };
 use miden_client::testing::common::{
     TestClient,
@@ -403,9 +405,13 @@ pub(crate) fn get_network_note_with_script<T: Rng>(
 ) -> Result<Note> {
     let target = NetworkAccountTarget::new(network_account, NoteExecutionHint::Always)?;
     let attachment: NoteAttachment = target.into();
-    let metadata = NoteMetadata::new(sender, NoteType::Public)
-        .with_tag(NoteTag::with_account_target(network_account))
-        .with_attachment(attachment);
+    // TEMP-PROTOCOL-ADAPTER: build the metadata via the new `(partial,
+    // &attachments)` constructor instead of the removed `with_attachment`.
+    // REVERT-WHEN: upstream adapter lands.
+    let partial = PartialNoteMetadata::new(sender, NoteType::Public)
+        .with_tag(NoteTag::with_account_target(network_account));
+    let attachments = NoteAttachments::from(attachment);
+    let metadata = NoteMetadata::new(partial, &attachments);
 
     let script = CodeBuilder::with_source_manager(source_manager.clone())
         .with_dynamically_linked_library(counter_contract_library(source_manager))?

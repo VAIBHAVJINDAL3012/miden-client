@@ -168,9 +168,12 @@ impl TransactionRequest {
             Some(TransactionScriptTemplate::SendNotes(notes)) => notes
                 .iter()
                 .map(|partial| {
+                    // TEMP-PROTOCOL-ADAPTER: `Note::new` now takes
+                    // `PartialNoteMetadata` instead of `NoteMetadata`.
+                    // REVERT-WHEN: upstream adapter lands.
                     Note::new(
                         partial.assets().clone(),
-                        partial.metadata().clone(),
+                        *partial.metadata().partial_metadata(),
                         self.expected_output_recipients
                             .get(&partial.recipient_digest())
                             .expect("Recipient should be included if it's an own note")

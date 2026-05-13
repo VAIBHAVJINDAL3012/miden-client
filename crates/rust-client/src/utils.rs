@@ -5,7 +5,10 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::num::ParseIntError;
 
-use miden_standards::account::faucets::TokenMetadata;
+// TEMP-PROTOCOL-ADAPTER: `MAX_DECIMALS` was moved from `TokenMetadata` to the
+// new consolidated `FungibleFaucet` struct (the protocol merged Basic and
+// Network fungible faucets into one). REVERT-WHEN: upstream adapter lands.
+use miden_standards::account::faucets::FungibleFaucet;
 pub use miden_tx::utils::serde::{
     ByteReader,
     ByteWriter,
@@ -44,7 +47,7 @@ pub fn base_units_to_tokens(units: u64, decimals: u8) -> String {
 /// a string into base units.
 #[derive(thiserror::Error, Debug)]
 pub enum TokenParseError {
-    #[error("Number of decimals {0} must be less than or equal to {max_decimals}", max_decimals = TokenMetadata::MAX_DECIMALS)]
+    #[error("Number of decimals {0} must be less than or equal to {max_decimals}", max_decimals = FungibleFaucet::MAX_DECIMALS)]
     MaxDecimals(u8),
     #[error("More than one decimal point")]
     MultipleDecimalPoints,
@@ -57,7 +60,7 @@ pub enum TokenParseError {
 /// Converts a decimal number, represented as a string, into an integer by shifting
 /// the decimal point to the right by a specified number of decimal places.
 pub fn tokens_to_base_units(decimal_str: &str, n_decimals: u8) -> Result<u64, TokenParseError> {
-    if n_decimals > TokenMetadata::MAX_DECIMALS {
+    if n_decimals > FungibleFaucet::MAX_DECIMALS {
         return Err(TokenParseError::MaxDecimals(n_decimals));
     }
 

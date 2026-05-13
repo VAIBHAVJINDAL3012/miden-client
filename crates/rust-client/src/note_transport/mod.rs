@@ -276,6 +276,8 @@ impl Deserializable for NoteTransportCursor {
 fn rejoin_note(header: &NoteHeader, details_bytes: &[u8]) -> Result<Note, DeserializationError> {
     let mut reader = SliceReader::new(details_bytes);
     let details = NoteDetails::read_from(&mut reader)?;
-    let metadata = header.metadata().clone();
-    Ok(Note::new(details.assets().clone(), metadata, details.recipient().clone()))
+    // TEMP-PROTOCOL-ADAPTER: `Note::new` now takes `PartialNoteMetadata`.
+    // REVERT-WHEN: upstream adapter lands.
+    let partial = *header.metadata().partial_metadata();
+    Ok(Note::new(details.assets().clone(), partial, details.recipient().clone()))
 }

@@ -1268,12 +1268,14 @@ mod tests {
         Note,
         NoteAssets,
         NoteAttachment,
+        NoteAttachments,
         NoteHeader,
         NoteMetadata,
         NoteRecipient,
         NoteStorage,
         NoteTag,
         NoteType,
+        PartialNoteMetadata,
     };
     use miden_protocol::testing::account_id::{
         ACCOUNT_ID_PRIVATE_FUNGIBLE_FAUCET,
@@ -1905,7 +1907,13 @@ mod tests {
         let target =
             NetworkAccountTarget::new(network_account_id, NoteExecutionHint::Always).unwrap();
         let attachment: NoteAttachment = target.into();
-        let metadata = NoteMetadata::new(sender_id, NoteType::Public).with_attachment(attachment);
+        // TEMP-PROTOCOL-ADAPTER: `NoteMetadata::with_attachment` was removed in
+        // the protocol refactor; construct via `(PartialNoteMetadata,
+        // &NoteAttachments)` instead. See rpc/domain/note.rs for the wider
+        // adapter context. REVERT-WHEN: upstream adapter lands.
+        let partial = PartialNoteMetadata::new(sender_id, NoteType::Public);
+        let attachments = NoteAttachments::from(attachment);
+        let metadata = NoteMetadata::new(partial, &attachments);
         let script = CodeBuilder::new()
             .compile_note_script("@note_script\npub proc main\n    nop\nend")
             .unwrap();

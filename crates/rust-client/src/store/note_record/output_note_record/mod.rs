@@ -224,8 +224,13 @@ impl TryFrom<OutputNoteRecord> for Note {
     fn try_from(value: OutputNoteRecord) -> Result<Self, Self::Error> {
         match value.recipient() {
             Some(recipient) => {
-                let note =
-                    Note::new(value.assets.clone(), value.metadata.clone(), recipient.clone());
+                // TEMP-PROTOCOL-ADAPTER: `Note::new` now takes
+                // `PartialNoteMetadata`. REVERT-WHEN: upstream adapter lands.
+                let note = Note::new(
+                    value.assets.clone(),
+                    *value.metadata.partial_metadata(),
+                    recipient.clone(),
+                );
                 Ok(note)
             },
             None => Err(NoteRecordError::ConversionError(

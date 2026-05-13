@@ -102,3 +102,19 @@ module_name_repetitions     = "allow" # Many triggers, and is a stylistic choice
 must_use_candidate          = "allow" # This marks many fn's which isn't helpful.
 should_panic_without_expect = "allow" # We don't care about the specific panic message.
 # End of pedantic lints.
+
+# TEMP-PROTOCOL-ADAPTER: redirect all transitive references to
+# `0xMiden/protocol.git` (e.g. those pulled in by `miden-remote-prover-client`
+# and `miden-node-*`) to the inicio-labs fork on the
+# `pswap-discovery-attachment` branch. Without this, Cargo resolves two
+# distinct `miden-protocol` versions in the dep graph, breaking type
+# compatibility between the local code and the remote-prover client.
+# REVERT-WHEN: PR 0xMiden/protocol#2909 lands on upstream `next` and the
+# Cargo.toml pin can be restored to `branch = "next"` for both direct and
+# transitive deps.
+[patch."https://github.com/0xMiden/protocol.git"]
+miden-protocol        = { branch = "pswap-discovery-attachment", git = "https://github.com/inicio-labs/protocol.git" }
+miden-standards       = { branch = "pswap-discovery-attachment", git = "https://github.com/inicio-labs/protocol.git" }
+miden-testing         = { branch = "pswap-discovery-attachment", git = "https://github.com/inicio-labs/protocol.git" }
+miden-tx              = { branch = "pswap-discovery-attachment", git = "https://github.com/inicio-labs/protocol.git" }
+miden-tx-batch-prover = { branch = "pswap-discovery-attachment", git = "https://github.com/inicio-labs/protocol.git" }

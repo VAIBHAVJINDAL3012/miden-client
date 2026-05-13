@@ -101,21 +101,23 @@ pub mod component {
     };
     pub use miden_protocol::account::{AccountComponent, AccountComponentMetadata};
     pub use miden_standards::account::auth::*;
+    // TEMP-PROTOCOL-ADAPTER: protocol merged BasicFungibleFaucet +
+    // NetworkFungibleFaucet into a single `FungibleFaucet`, and the matching
+    // `basic_/network_fungible_faucet_library` helpers consolidated into
+    // `fungible_faucet_library`. `FungibleTokenMetadata` was renamed to
+    // `TokenMetadata` and moved from `account::metadata` to
+    // `account::faucets`. The re-export surface here mirrors that.
+    // REVERT-WHEN: client-side adapter for the protocol refactor lands
+    // upstream — restore the original splits and locations.
     pub use miden_standards::account::components::{
-        basic_fungible_faucet_library,
         basic_wallet_library,
+        fungible_faucet_library,
         multisig_library,
-        network_fungible_faucet_library,
         no_auth_library,
         singlesig_acl_library,
         singlesig_library,
     };
-    pub use miden_standards::account::faucets::{
-        BasicFungibleFaucet,
-        NetworkFungibleFaucet,
-        TokenMetadata,
-    };
-    pub use miden_standards::account::metadata::{FungibleTokenMetadata, TokenName};
+    pub use miden_standards::account::faucets::{FungibleFaucet, TokenMetadata, TokenName};
     pub use miden_standards::account::policies::{
         BurnAllowAll,
         BurnOwnerOnly,

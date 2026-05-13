@@ -14,15 +14,16 @@ use miden_protocol::note::{
     Note,
     NoteAssets,
     NoteAttachment,
+    NoteAttachments,
     NoteDetails,
     NoteId,
-    NoteMetadata,
     NoteRecipient,
     NoteScript,
     NoteStorage,
     NoteTag,
     NoteType,
     PartialNote,
+    PartialNoteMetadata,
 };
 use miden_protocol::transaction::TransactionScript;
 use miden_protocol::vm::AdviceMap;
@@ -327,7 +328,7 @@ impl TransactionRequestBuilder {
             target_id,
             vec![asset.into()],
             note_type,
-            NoteAttachment::default(),
+            NoteAttachments::default(),
             rng,
         )?;
 
@@ -389,7 +390,7 @@ impl TransactionRequestBuilder {
             swap_data.offered_asset(),
             swap_data.requested_asset(),
             note_type,
-            NoteAttachment::default(),
+            NoteAttachments::default(),
             payback_note_type,
             rng,
         )?;
@@ -426,8 +427,11 @@ impl TransactionRequestBuilder {
                 let note_storage = NoteStorage::new(vec![])?;
                 let recipient = NoteRecipient::new(serial_num, script, note_storage);
                 let note_assets = NoteAssets::new(vec![])?;
-                let metadata = NoteMetadata::new(sender_account_id, NoteType::Public);
-                Ok(Note::new(note_assets, metadata, recipient))
+                // TEMP-PROTOCOL-ADAPTER: build via PartialNoteMetadata, the
+                // new `Note::new` signature. REVERT-WHEN: upstream adapter
+                // lands.
+                let partial = PartialNoteMetadata::new(sender_account_id, NoteType::Public);
+                Ok(Note::new(note_assets, partial, recipient))
             })
             .collect::<Result<_, NoteError>>()?;
 
@@ -713,7 +717,7 @@ impl PaymentNoteDescription {
                 self.target_account_id,
                 self.assets,
                 note_type,
-                NoteAttachment::default(),
+                NoteAttachments::default(),
                 rng,
             )
         } else {
@@ -727,7 +731,7 @@ impl PaymentNoteDescription {
                 ),
                 self.assets,
                 note_type,
-                NoteAttachment::default(),
+                NoteAttachments::default(),
                 rng,
             )
         }

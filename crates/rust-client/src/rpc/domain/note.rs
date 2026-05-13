@@ -7,7 +7,7 @@ use miden_protocol::crypto::merkle::MerklePath;
 use miden_protocol::note::{
     Note,
     NoteAttachment,
-    NoteAttachmentKind,
+    NoteAttachments,
     NoteDetails,
     NoteHeader,
     NoteId,
@@ -16,12 +16,41 @@ use miden_protocol::note::{
     NoteScript,
     NoteTag,
     NoteType,
+    PartialNoteMetadata,
 };
 use miden_protocol::{MastForest, MastNodeId, Word};
 use miden_tx::utils::serde::Deserializable;
 
 use super::{MissingFieldHelper, RpcConversionError};
 use crate::rpc::{RpcError, generated as proto};
+
+// TEMP-PROTOCOL-ADAPTER: the protocol removed `NoteAttachmentKind` when
+// attachments became multi-slot with per-slot schemes. The wire format
+// (proto `NoteMetadataHeader.attachment_kind`) still carries a kind value, so
+// we mirror the old enum locally to keep `CommittedNoteMetadata`'s public API
+// stable. Values match `proto::note::NoteAttachmentKind`. REVERT-WHEN:
+// upstream adapter lands.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum NoteAttachmentKind {
+    #[default]
+    Unspecified = 0,
+    None = 1,
+    Word = 2,
+    Array = 3,
+}
+
+impl NoteAttachmentKind {
+    fn try_from_u8(value: u8) -> Result<Self, ()> {
+        match value {
+            0 => Ok(Self::Unspecified),
+            1 => Ok(Self::None),
+            2 => Ok(Self::Word),
+            3 => Ok(Self::Array),
+            _ => Err(()),
+        }
+    }
+}
 
 impl From<NoteId> for proto::note::NoteId {
     fn from(value: NoteId) -> Self {
@@ -59,6 +88,23 @@ fn note_type_to_proto(note_type: NoteType) -> i32 {
     proto_note_type as i32
 }
 
+// TEMP-PROTOCOL-ADAPTER: The protocol refactored `NoteMetadata` to carry only
+// attachment headers + commitment instead of the full `NoteAttachment` content
+// (see commits between `c6f1ecf9` and `9160eee3` on protocol/next). The
+// wire-format `proto::note::NoteMetadata` still ships a single serialised
+// `NoteAttachment` in `attachment: Vec<u8>`, so this temp adapter:
+//   • on receive: deserializes the bytes into a `NoteAttachment`, wraps it in
+//     `NoteAttachments`, and constructs the new `NoteMetadata` via
+//     `NoteMetadata::new(partial, &attachments)`. The headers + commitment are
+//     derived correctly, but the attachment word is no longer reachable from
+//     the resulting `NoteMetadata` (callers must thread `NoteAttachments`
+//     alongside if they need the content — see plan §6.0).
+//   • on send: emits empty attachment bytes. The new `NoteMetadata` does not
+//     retain the content so the round-trip is currently lossy. No production
+//     call site in this crate sends a `NoteMetadata` back to the node today
+//     (verified via grep), so the loss is acceptable for the interim.
+// REVERT-WHEN: upstream lands the proper client-side adapter that threads
+// `NoteAttachments` through `CommittedNote` / `FetchedNote` / `NoteHeader`.
 impl TryFrom<proto::note::NoteMetadata> for NoteMetadata {
     type Error = RpcConversionError;
 
@@ -70,26 +116,30 @@ impl TryFrom<proto::note::NoteMetadata> for NoteMetadata {
         let note_type = note_type_from_proto(value.note_type)?;
         let tag = NoteTag::new(value.tag);
 
-        // Deserialize attachment if present
-        let attachment = if value.attachment.is_empty() {
-            NoteAttachment::default()
+        let attachments = if value.attachment.is_empty() {
+            NoteAttachments::default()
         } else {
-            NoteAttachment::read_from_bytes(&value.attachment)
-                .map_err(RpcConversionError::DeserializationError)?
+            let attachment = NoteAttachment::read_from_bytes(&value.attachment)
+                .map_err(RpcConversionError::DeserializationError)?;
+            NoteAttachments::from(attachment)
         };
 
-        Ok(NoteMetadata::new(sender, note_type).with_tag(tag).with_attachment(attachment))
+        let partial = PartialNoteMetadata::new(sender, note_type).with_tag(tag);
+        Ok(NoteMetadata::new(partial, &attachments))
     }
 }
 
 impl From<NoteMetadata> for proto::note::NoteMetadata {
     fn from(value: NoteMetadata) -> Self {
-        use miden_tx::utils::serde::Serializable;
         proto::note::NoteMetadata {
             sender: Some(value.sender().into()),
             note_type: note_type_to_proto(value.note_type()),
             tag: value.tag().as_u32(),
-            attachment: value.attachment().to_bytes(),
+            // TEMP-PROTOCOL-ADAPTER: see module-level comment on the TryFrom
+            // above. The new `NoteMetadata` does not carry attachment content,
+            // so we cannot round-trip it without restructuring `CommittedNote`
+            // / `FetchedNote` to thread `NoteAttachments` separately.
+            attachment: alloc::vec::Vec::new(),
         }
     }
 }
@@ -347,11 +397,15 @@ impl TryFrom<proto::note::NoteSyncRecord> for CommittedNote {
         let tag = NoteTag::new(proto_header.tag);
         let attachment_kind = u8::try_from(proto_header.attachment_kind)
             .ok()
-            .and_then(|kind| NoteAttachmentKind::try_from(kind).ok())
+            .and_then(|kind| NoteAttachmentKind::try_from_u8(kind).ok())
             .unwrap_or_default();
 
         let metadata = if attachment_kind == NoteAttachmentKind::None {
-            CommittedNoteMetadata::Full(NoteMetadata::new(sender, note_type).with_tag(tag))
+            // TEMP-PROTOCOL-ADAPTER: NoteMetadata::new takes
+            // (PartialNoteMetadata, &NoteAttachments) in the new protocol.
+            // REVERT-WHEN: upstream adapter lands.
+            let partial = PartialNoteMetadata::new(sender, note_type).with_tag(tag);
+            CommittedNoteMetadata::Full(NoteMetadata::new(partial, &NoteAttachments::default()))
         } else {
             CommittedNoteMetadata::Header { sender, note_type, tag, attachment_kind }
         };
@@ -434,7 +488,7 @@ impl TryFrom<proto::note::CommittedNote> for FetchedNote {
             .note
             .ok_or_else(|| proto::note::CommittedNote::missing_field(stringify!(note)))?;
 
-        let metadata = note
+        let metadata: NoteMetadata = note
             .metadata
             .ok_or_else(|| proto::note::CommittedNote::missing_field(stringify!(note.metadata)))?
             .try_into()?;
@@ -443,7 +497,15 @@ impl TryFrom<proto::note::CommittedNote> for FetchedNote {
             let details = NoteDetails::read_from_bytes(&detail_bytes)?;
             let (assets, recipient) = details.into_parts();
 
-            Ok(FetchedNote::Public(Note::new(assets, metadata, recipient), inclusion_proof))
+            // TEMP-PROTOCOL-ADAPTER: `Note::new` now takes `PartialNoteMetadata`,
+            // not `NoteMetadata`. Extract the partial half here. The full
+            // `NoteMetadata` (which would carry attachment headers + commitment)
+            // is reconstructed inside `Note::new` from the recipient + empty
+            // attachments. The proto round-trip is lossy for the attachment
+            // content until the upstream adapter threads `NoteAttachments`
+            // alongside. REVERT-WHEN: upstream adapter lands.
+            let partial = metadata.partial_metadata().clone();
+            Ok(FetchedNote::Public(Note::new(assets, partial, recipient), inclusion_proof))
         } else {
             let note_header = NoteHeader::new(note_id, metadata);
             Ok(FetchedNote::Private(note_header, inclusion_proof))

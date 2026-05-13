@@ -3,7 +3,10 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use miden_protocol::account::AccountId;
 use miden_protocol::block::{BlockHeader, BlockNumber};
 use miden_protocol::note::{Note, NoteHeader, NoteId, NoteInclusionProof, Nullifier};
-use miden_standards::note::NetworkAccountTarget;
+// TEMP-PROTOCOL-ADAPTER: `NetworkAccountTarget` detection is disabled in
+// `mark_erased_note_as_consumed` until the `NoteAttachments` adapter lands; the
+// import is removed to avoid an unused-import warning.
+// use miden_standards::note::NetworkAccountTarget;
 use miden_tx::utils::serde::{
     ByteReader,
     ByteWriter,
@@ -394,13 +397,18 @@ impl NoteUpdateTracker {
             output_note.nullifier_received(nullifier, block_num)?;
         }
 
-        // Extract the consumer from the `NetworkAccountTarget` attachment, only if the target
-        // is a network account and it is tracked by this client.
-        let consumer_network_account_id =
-            NetworkAccountTarget::try_from(note_header.metadata().attachment())
-                .ok()
-                .map(|t| t.target_id())
-                .filter(|id| self.tracked_accounts_ids.contains(id));
+        // TEMP-PROTOCOL-ADAPTER: the new `NoteMetadata` no longer exposes the
+        // `NoteAttachment` content (only headers + commitment), so the
+        // `NetworkAccountTarget` attachment cannot be read from the header
+        // alone. The proper fix is to thread `NoteAttachments` through the
+        // mark_erased_note_as_consumed call site (e.g. via the parent
+        // `CommittedNote` / `FetchedNote` carrying the attachments alongside).
+        // Until that adapter lands we treat the consumer as unknown — losing
+        // network-account-target detection for erased notes; the input note
+        // is still marked consumed downstream, just without the consumer id.
+        // REVERT-WHEN: the upstream `NoteAttachments`-threading client-side
+        // adapter is in place. See plan §6.0.
+        let consumer_network_account_id: Option<AccountId> = None;
 
         // Only create an input record when the consumer is a tracked account.
         if let Some(consumer_id) = consumer_network_account_id {

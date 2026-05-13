@@ -358,6 +358,12 @@ impl From<InputNote> for InputNoteRecord {
     }
 }
 
+// TEMP-PROTOCOL-ADAPTER: `Note::new` now takes `PartialNoteMetadata`, not
+// `NoteMetadata`. Each call site extracts the partial metadata via
+// `metadata.partial_metadata()`. The full attachment content (headers +
+// commitment) is reconstructed inside `Note::new` from the recipient + empty
+// attachments — losing any attachment content the original `NoteMetadata`
+// carried. REVERT-WHEN: upstream adapter lands.
 impl TryInto<InputNote> for InputNoteRecord {
     type Error = NoteRecordError;
 
@@ -366,14 +372,14 @@ impl TryInto<InputNote> for InputNoteRecord {
             (Some(metadata), Some(inclusion_proof)) => Ok(InputNote::authenticated(
                 Note::new(
                     self.details.assets().clone(),
-                    metadata.clone(),
+                    *metadata.partial_metadata(),
                     self.details.recipient().clone(),
                 ),
                 inclusion_proof.clone(),
             )),
             (Some(metadata), None) => Ok(InputNote::unauthenticated(Note::new(
                 self.details.assets().clone(),
-                metadata.clone(),
+                *metadata.partial_metadata(),
                 self.details.recipient().clone(),
             ))),
             _ => Err(NoteRecordError::ConversionError(
@@ -387,10 +393,10 @@ impl TryInto<Note> for InputNoteRecord {
     type Error = NoteRecordError;
 
     fn try_into(self) -> Result<Note, Self::Error> {
-        match self.metadata().cloned() {
+        match self.metadata() {
             Some(metadata) => Ok(Note::new(
                 self.details.assets().clone(),
-                metadata,
+                *metadata.partial_metadata(),
                 self.details.recipient().clone(),
             )),
             None => Err(NoteRecordError::ConversionError(
@@ -404,10 +410,10 @@ impl TryInto<Note> for &InputNoteRecord {
     type Error = NoteRecordError;
 
     fn try_into(self) -> Result<Note, Self::Error> {
-        match self.metadata().cloned() {
+        match self.metadata() {
             Some(metadata) => Ok(Note::new(
                 self.details.assets().clone(),
-                metadata,
+                *metadata.partial_metadata(),
                 self.details.recipient().clone(),
             )),
             None => Err(NoteRecordError::ConversionError(

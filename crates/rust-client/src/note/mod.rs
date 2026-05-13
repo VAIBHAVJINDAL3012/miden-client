@@ -75,12 +75,18 @@ mod note_update_tracker;
 
 pub use miden_protocol::block::BlockNumber;
 pub use miden_protocol::errors::NoteError;
+// TEMP-PROTOCOL-ADAPTER: `NoteAttachmentKind` and `NoteMetadataHeader` were
+// removed from the protocol when attachments became multi-slot
+// (NoteAttachments::MAX_COUNT = 4) with per-slot schemes. The wire-format
+// proto still ships a single `attachment_kind` field, so the client now uses
+// the proto-level enum directly via `rpc::generated::*::NoteAttachmentKind`
+// where needed. REVERT-WHEN: upstream adapter lands.
 pub use miden_protocol::note::{
     Note,
     NoteAssets,
     NoteAttachment,
-    NoteAttachmentKind,
     NoteAttachmentScheme,
+    NoteAttachments,
     NoteDetails,
     NoteFile,
     NoteHeader,
@@ -88,7 +94,6 @@ pub use miden_protocol::note::{
     NoteInclusionProof,
     NoteLocation,
     NoteMetadata,
-    NoteMetadataHeader,
     NoteRecipient,
     NoteScript,
     NoteScriptRoot,
@@ -97,6 +102,7 @@ pub use miden_protocol::note::{
     NoteType,
     Nullifier,
     PartialNote,
+    PartialNoteMetadata,
 };
 pub use miden_protocol::transaction::ToInputNoteCommitments;
 pub use miden_standards::note::{
