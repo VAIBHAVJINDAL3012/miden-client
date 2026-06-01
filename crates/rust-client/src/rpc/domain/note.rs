@@ -263,6 +263,13 @@ pub struct CommittedNote {
     /// attachment scheme markers and the attachments commitment); attachment **content** is
     /// fetched separately via `GetNotesById`.
     metadata: NoteMetadata,
+    /// Resolved attachment content for the note.
+    ///
+    /// A `SyncNotes` response carries only the attachment scheme markers and commitment (in the
+    /// metadata), never the content. The content is resolved in a second step via `GetNotesById`,
+    /// so this is `None` on a note straight out of `sync_notes` and becomes `Some` once resolved
+    /// via [`Self::with_attachments`].
+    attachments: Option<NoteAttachments>,
     /// Inclusion proof for the note in the block.
     inclusion_proof: NoteInclusionProof,
 }
@@ -273,7 +280,19 @@ impl CommittedNote {
         metadata: NoteMetadata,
         inclusion_proof: NoteInclusionProof,
     ) -> Self {
-        Self { note_id, metadata, inclusion_proof }
+        Self {
+            note_id,
+            metadata,
+            attachments: None,
+            inclusion_proof,
+        }
+    }
+
+    /// Returns this note with its attachment content resolved (as fetched via `GetNotesById`).
+    #[must_use]
+    pub fn with_attachments(mut self, attachments: NoteAttachments) -> Self {
+        self.attachments = Some(attachments);
+        self
     }
 
     pub fn note_id(&self) -> &NoteId {
@@ -295,6 +314,12 @@ impl CommittedNote {
     /// Returns the full note metadata.
     pub fn metadata(&self) -> &NoteMetadata {
         &self.metadata
+    }
+
+    /// Returns the note's resolved attachment content, or `None` if the content has not been
+    /// fetched via `GetNotesById` (see [`Self::with_attachments`]).
+    pub fn attachments(&self) -> Option<&NoteAttachments> {
+        self.attachments.as_ref()
     }
 
     pub fn inclusion_proof(&self) -> &NoteInclusionProof {
@@ -334,9 +359,12 @@ impl TryFrom<proto::note::NoteSyncRecord> for CommittedNote {
 /// Describes the possible responses from the `GetNotesById` endpoint for a single note.
 #[allow(clippy::large_enum_variant)]
 pub enum FetchedNote {
-    /// Details for a private note only include its ID, metadata and inclusion proof. Other
+    /// Details for a private note include its ID, metadata, attachments and inclusion proof. Other
     /// details needed to consume the note are expected to be stored locally, off-chain.
-    Private(NoteId, NoteMetadata, NoteInclusionProof),
+    ///
+    /// Attachments are a public extension of the note and are stored on-chain even for private
+    /// notes, so the node returns them here; they are needed to reconstruct the correct note ID.
+    Private(NoteId, NoteMetadata, NoteAttachments, NoteInclusionProof),
     /// Contains the full [`Note`] object alongside its [`NoteInclusionProof`].
     Public(Note, NoteInclusionProof),
 }
@@ -345,7 +373,7 @@ impl FetchedNote {
     /// Returns the note's inclusion details.
     pub fn inclusion_proof(&self) -> &NoteInclusionProof {
         match self {
-            FetchedNote::Private(_, _, inclusion_proof)
+            FetchedNote::Private(_, _, _, inclusion_proof)
             | FetchedNote::Public(_, inclusion_proof) => inclusion_proof,
         }
     }
@@ -353,8 +381,16 @@ impl FetchedNote {
     /// Returns the note's metadata.
     pub fn metadata(&self) -> &NoteMetadata {
         match self {
-            FetchedNote::Private(_, metadata, _) => metadata,
+            FetchedNote::Private(_, metadata, ..) => metadata,
             FetchedNote::Public(note, _) => note.metadata(),
+        }
+    }
+
+    /// Returns the note's attachments.
+    pub fn attachments(&self) -> &NoteAttachments {
+        match self {
+            FetchedNote::Private(_, _, attachments, _) => attachments,
+            FetchedNote::Public(note, _) => note.attachments(),
         }
     }
 
@@ -394,22 +430,22 @@ impl TryFrom<proto::note::CommittedNote> for FetchedNote {
         let metadata: NoteMetadata = proto_metadata.clone().try_into()?;
         let partial_metadata: PartialNoteMetadata = (&proto_metadata).try_into()?;
 
+        let attachments = if note.attachments.is_empty() {
+            NoteAttachments::empty()
+        } else {
+            NoteAttachments::read_from_bytes(&note.attachments)?
+        };
+
         if let Some(detail_bytes) = note.details {
             let details = NoteDetails::read_from_bytes(&detail_bytes)?;
             let (assets, recipient) = details.into_parts();
-
-            let attachments = if note.attachments.is_empty() {
-                NoteAttachments::empty()
-            } else {
-                NoteAttachments::read_from_bytes(&note.attachments)?
-            };
 
             Ok(FetchedNote::Public(
                 Note::with_attachments(assets, partial_metadata, recipient, attachments),
                 inclusion_proof,
             ))
         } else {
-            Ok(FetchedNote::Private(note_id, metadata, inclusion_proof))
+            Ok(FetchedNote::Private(note_id, metadata, attachments, inclusion_proof))
         }
     }
 }

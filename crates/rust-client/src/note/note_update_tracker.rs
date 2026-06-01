@@ -388,11 +388,18 @@ impl NoteUpdateTracker {
         let inclusion_proof = committed_note.inclusion_proof().clone();
         let metadata = *committed_note.metadata();
         let note_id = *committed_note.note_id();
+        // `Some` only when the note's attachment content was resolved during sync (via
+        // `GetNotesById`); private notes carry their attachments on-chain and need them stored so
+        // the record reconstructs the correct note ID.
+        let attachments = committed_note.attachments();
 
         let is_tracked_as_input_note =
             if let Some(input_note_record) = self.get_input_note_by_id(note_id) {
                 input_note_record.inclusion_proof_received(inclusion_proof.clone(), metadata)?;
                 input_note_record.block_header_received(block_header)?;
+                if let Some(attachments) = attachments {
+                    input_note_record.set_attachments(attachments.clone());
+                }
 
                 true
             } else if let Some(commitment) = self.expected_note_matching(note_id, &metadata) {
@@ -405,6 +412,9 @@ impl NoteUpdateTracker {
                 let record = &mut update.note;
                 record.inclusion_proof_received(inclusion_proof.clone(), metadata)?;
                 record.block_header_received(block_header)?;
+                if let Some(attachments) = attachments {
+                    record.set_attachments(attachments.clone());
+                }
 
                 // `InsertCommitted` so the now-known `note_id`/`nullifier` columns are persisted
                 // (a full-row insert), while still being reported as a committed tracked note

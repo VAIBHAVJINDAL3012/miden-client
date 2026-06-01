@@ -62,7 +62,15 @@ use miden_protocol::address::NetworkId;
 use miden_protocol::batch::{ProposedBatch, ProvenBatch};
 use miden_protocol::block::{BlockHeader, BlockNumber, ProvenBlock};
 use miden_protocol::crypto::merkle::mmr::MmrProof;
-use miden_protocol::note::{NoteId, NoteScript, NoteTag, NoteType, Nullifier};
+use miden_protocol::note::{
+    NoteAttachments,
+    NoteId,
+    NoteMetadata,
+    NoteScript,
+    NoteTag,
+    NoteType,
+    Nullifier,
+};
 use miden_protocol::transaction::{ProvenTransaction, TransactionInputs};
 use miden_protocol::{EMPTY_WORD, Word};
 
@@ -103,6 +111,14 @@ pub enum AccountStateAt {
     ChainTip,
     /// Gets the state at a specific block number
     Block(BlockNumber),
+}
+
+/// Returns `true` if the note's metadata advertises at least one attachment.
+///
+/// Sync records carry attachment scheme markers (not the attachment content), so a present scheme
+/// in any header slot indicates the note has attachments whose content must be fetched separately.
+fn metadata_has_attachments(metadata: &NoteMetadata) -> bool {
+    metadata.attachment_headers().iter().any(|header| header.scheme().is_some())
 }
 
 // NODE RPC CLIENT TRAIT
@@ -314,36 +330,67 @@ pub trait NodeRpcClient: Send + Sync {
 
     /// Calls [`NodeRpcClient::sync_notes`] for the requested range, then makes a single
     /// [`NodeRpcClient::get_notes_by_id`] call to fetch full note bodies (scripts, assets,
-    /// recipient) for public notes.
+    /// recipient) for public notes and attachment content for private notes that carry
+    /// attachments.
     ///
     /// All public notes in the range are fetched (not just the ones the client tracks) to
-    /// avoid revealing which specific notes the client is interested in.
+    /// avoid revealing which specific notes the client is interested in. Private notes are only
+    /// fetched when their synced metadata indicates non-empty attachments, since the sync record
+    /// carries attachment scheme markers but not the attachment content, which is needed to
+    /// reconstruct the note's ID.
     ///
-    /// Returns the resolved note blocks and the fetched public note bodies.
+    /// Returns the resolved note blocks and the fetched public note bodies. Fetched private-note
+    /// attachments are written back onto the matching [`CommittedNote`] in `blocks`.
     async fn sync_notes_with_details(
         &self,
         block_from: BlockNumber,
         block_to: BlockNumber,
         note_tags: &BTreeSet<NoteTag>,
     ) -> Result<SyncNotesResult, RpcError> {
-        let blocks = self.sync_notes(block_from, block_to, note_tags).await?;
+        let mut blocks = self.sync_notes(block_from, block_to, note_tags).await?;
 
         let note_ids: Vec<NoteId> = blocks
             .iter()
             .flat_map(|b| b.notes.values())
-            .filter(|n| n.note_type() == NoteType::Public)
+            .filter(|n| n.note_type() == NoteType::Public || metadata_has_attachments(n.metadata()))
             .map(|n| *n.note_id())
             .collect();
 
         let mut public_notes = BTreeMap::new();
 
+        // Private-note attachment content, keyed by note ID, resolved from the `GetNotesById`
+        // response and then folded into the matching committed notes below.
+        let mut private_attachments: BTreeMap<NoteId, NoteAttachments> = BTreeMap::new();
+
         if !note_ids.is_empty() {
             let fetched = self.get_notes_by_id(&note_ids).await?;
 
             for fetched_note in fetched {
-                if let FetchedNote::Public(note, _) = fetched_note {
-                    public_notes.insert(note.id(), note);
+                match fetched_note {
+                    FetchedNote::Public(note, _) => {
+                        public_notes.insert(note.id(), note);
+                    },
+                    FetchedNote::Private(note_id, _, attachments, _) => {
+                        if !attachments.is_empty() {
+                            private_attachments.insert(note_id, attachments);
+                        }
+                    },
                 }
+            }
+        }
+
+        // Resolve the fetched attachments onto the committed notes that carry them. Notes without
+        // fetched attachments are left unresolved (`attachments() == None`).
+        if !private_attachments.is_empty() {
+            for block in &mut blocks {
+                let resolved = core::mem::take(&mut block.notes)
+                    .into_iter()
+                    .map(|(id, note)| match private_attachments.remove(&id) {
+                        Some(attachments) => (id, note.with_attachments(attachments)),
+                        None => (id, note),
+                    })
+                    .collect();
+                block.notes = resolved;
             }
         }
 

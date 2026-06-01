@@ -5,6 +5,7 @@
 ### Fixes
 
 * [FIX] Fixed `derive_account_commitments` to return the final account commitment when multiple transactions for the same account are committed in the same block ([#2164](https://github.com/0xMiden/miden-client/pull/2164)).
+* [FIX] Private notes carrying attachments now store their on-chain attachments during sync (fetched via `GetNotesById`), so the reconstructed note keeps the correct ID and stays consumable.
 
 ### Changes
 
