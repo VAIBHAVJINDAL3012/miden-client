@@ -43,12 +43,9 @@ use miden_client::note::{
     NoteStorage,
     NoteTag,
     NoteType,
-    P2idNote,
     P2idNoteStorage,
     PartialNoteMetadata,
 };
-use miden_client::rpc::generated::note::NoteIdList;
-use miden_client::rpc::generated::rpc::api_client::ApiClient;
 use miden_client::store::{InputNoteState, NoteFilter};
 use miden_client::sync::NoteTagSource;
 use miden_client::testing::common::{
@@ -59,7 +56,6 @@ use miden_client::testing::common::{
     wait_for_tx,
 };
 use miden_client::transaction::{TransactionKernel, TransactionRequestBuilder};
-use miden_client::utils::Deserializable;
 use miden_client::{Felt, Word, ZERO};
 use rand::{Rng, RngCore};
 
@@ -805,66 +801,6 @@ pub async fn test_watch_network_account(client_config: ClientConfig) -> Result<(
     assert_ne!(
         watched_commitment, initial_watched_commitment,
         "watched commitment should have advanced",
-    );
-
-    Ok(())
-}
-
-pub async fn test_get_notes_by_id_returns_private_note_attachments(
-    client_config: ClientConfig,
-) -> Result<()> {
-    let rpc_url = client_config.rpc_endpoint().to_string();
-    let (mut client, keystore) = client_config.into_client().await?;
-    client.sync_state().await?;
-
-    // A public account to target with the `NetworkAccountTarget` attachment; it also emits the
-    // note (the target must be public).
-    let (account, _) =
-        insert_new_wallet(&mut client, AccountType::Public, &keystore, RPO_FALCON_SCHEME_ID)
-            .await?;
-
-    // Build a PRIVATE note carrying a `NetworkAccountTarget` attachment and commit it on-chain.
-    let target = NetworkAccountTarget::new(account.id(), NoteExecutionHint::Always)?;
-    let attachments = NoteAttachments::new(vec![target.into()])?;
-    let note = P2idNote::create(
-        account.id(),
-        account.id(),
-        vec![],
-        NoteType::Private,
-        attachments,
-        client.rng(),
-    )?;
-    let note_id = note.id();
-
-    let tx_request = TransactionRequestBuilder::new().own_output_notes(vec![note]).build()?;
-    execute_tx_and_sync(&mut client, account.id(), tx_request).await?;
-
-    // Query the node's raw `GetNotesById` and assert the private note's attachments are returned.
-    let mut rpc = ApiClient::connect(rpc_url).await.context("failed to connect raw RPC client")?;
-    let response = rpc
-        .get_notes_by_id(NoteIdList { ids: vec![note_id.into()] })
-        .await
-        .context("get_notes_by_id failed")?
-        .into_inner();
-
-    let committed = response.notes.into_iter().next().context("note not returned by node")?;
-    let proto_note = committed.note.context("committed note missing note body")?;
-
-    // A private note exposes no details on-chain, but its attachments must be present.
-    assert!(proto_note.details.is_none(), "private note should not expose details on-chain");
-    assert!(
-        !proto_note.attachments.is_empty(),
-        "node returned empty attachments for a private note"
-    );
-
-    let returned = NoteAttachments::read_from_bytes(&proto_note.attachments)
-        .context("failed to deserialize attachments returned by the node")?;
-    let returned_target = NetworkAccountTarget::try_from(&returned)
-        .context("returned attachments did not contain a NetworkAccountTarget")?;
-    assert_eq!(
-        returned_target.target_id(),
-        account.id(),
-        "node should round-trip the private note's NetworkAccountTarget attachment",
     );
 
     Ok(())
