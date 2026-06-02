@@ -4,6 +4,7 @@ use miden_protocol::account::AccountId;
 use miden_protocol::block::{BlockHeader, BlockNumber};
 use miden_protocol::note::{
     Note,
+    NoteAttachments,
     NoteDetailsCommitment,
     NoteHeader,
     NoteId,
@@ -380,18 +381,20 @@ impl NoteUpdateTracker {
 
     /// Applies the necessary state transitions to the [`NoteUpdateTracker`] when a note is
     /// committed in a block and returns whether the committed note is tracked as input note.
+    ///
+    /// `attachments` carries the note's resolved attachment content when it was fetched during
+    /// sync (via `GetNotesById`); private notes carry their attachments on-chain and need them
+    /// stored so the record reconstructs the correct note ID. It is `None` for notes without
+    /// attachments.
     pub(crate) fn apply_committed_note_state_transitions(
         &mut self,
         committed_note: &CommittedNote,
         block_header: &BlockHeader,
+        attachments: Option<&NoteAttachments>,
     ) -> Result<bool, ClientError> {
         let inclusion_proof = committed_note.inclusion_proof().clone();
         let metadata = *committed_note.metadata();
         let note_id = *committed_note.note_id();
-        // `Some` only when the note's attachment content was resolved during sync (via
-        // `GetNotesById`); private notes carry their attachments on-chain and need them stored so
-        // the record reconstructs the correct note ID.
-        let attachments = committed_note.attachments();
 
         let is_tracked_as_input_note =
             if let Some(input_note_record) = self.get_input_note_by_id(note_id) {

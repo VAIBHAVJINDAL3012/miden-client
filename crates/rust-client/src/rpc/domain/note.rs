@@ -211,15 +211,22 @@ pub struct NoteSyncBlock {
 
 /// Result of [`NodeRpcClient::sync_notes_with_details`](crate::rpc::NodeRpcClient::sync_notes_with_details).
 ///
-/// Contains fully-resolved note blocks (all metadata filled) and full note bodies for
-/// public notes. The block data and public note bodies are separated to avoid duplication:
-/// blocks carry metadata + inclusion proofs, while `public_notes` carries the note content
-/// (scripts, assets, recipient) keyed by note ID.
+/// Contains fully-resolved note blocks (all metadata filled), full note bodies for public notes,
+/// and attachment content for private notes that carry attachments. The block data is kept apart
+/// from the resolved content to avoid duplication: blocks carry metadata + inclusion proofs, while
+/// `public_notes` carries public note content (scripts, assets, recipient) and
+/// `private_attachments` carries private-note attachment content — both keyed by note ID.
 pub struct SyncNotesResult {
     /// Blocks containing matching notes with fully-resolved metadata.
     pub blocks: Vec<NoteSyncBlock>,
     /// Full note bodies for public notes, keyed by note ID.
     pub public_notes: BTreeMap<NoteId, Note>,
+    /// Attachment content for private notes that carry attachments, keyed by note ID.
+    ///
+    /// A `SyncNotes` response carries only the attachment scheme markers and commitment (in the
+    /// metadata); the content is resolved separately via `GetNotesById`. Private notes without
+    /// attachments do not appear here.
+    pub private_attachments: BTreeMap<NoteId, NoteAttachments>,
 }
 
 impl TryFrom<proto::rpc::sync_notes_response::NoteSyncBlock> for NoteSyncBlock {
@@ -263,13 +270,6 @@ pub struct CommittedNote {
     /// attachment scheme markers and the attachments commitment); attachment **content** is
     /// fetched separately via `GetNotesById`.
     metadata: NoteMetadata,
-    /// Resolved attachment content for the note.
-    ///
-    /// A `SyncNotes` response carries only the attachment scheme markers and commitment (in the
-    /// metadata), never the content. The content is resolved in a second step via `GetNotesById`,
-    /// so this is `None` on a note straight out of `sync_notes` and becomes `Some` once resolved
-    /// via [`Self::with_attachments`].
-    attachments: Option<NoteAttachments>,
     /// Inclusion proof for the note in the block.
     inclusion_proof: NoteInclusionProof,
 }
@@ -280,19 +280,7 @@ impl CommittedNote {
         metadata: NoteMetadata,
         inclusion_proof: NoteInclusionProof,
     ) -> Self {
-        Self {
-            note_id,
-            metadata,
-            attachments: None,
-            inclusion_proof,
-        }
-    }
-
-    /// Returns this note with its attachment content resolved (as fetched via `GetNotesById`).
-    #[must_use]
-    pub fn with_attachments(mut self, attachments: NoteAttachments) -> Self {
-        self.attachments = Some(attachments);
-        self
+        Self { note_id, metadata, inclusion_proof }
     }
 
     pub fn note_id(&self) -> &NoteId {
@@ -314,12 +302,6 @@ impl CommittedNote {
     /// Returns the full note metadata.
     pub fn metadata(&self) -> &NoteMetadata {
         &self.metadata
-    }
-
-    /// Returns the note's resolved attachment content, or `None` if the content has not been
-    /// fetched via `GetNotesById` (see [`Self::with_attachments`]).
-    pub fn attachments(&self) -> Option<&NoteAttachments> {
-        self.attachments.as_ref()
     }
 
     pub fn inclusion_proof(&self) -> &NoteInclusionProof {

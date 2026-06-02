@@ -308,15 +308,15 @@ pub trait NodeRpcClient: Send + Sync {
     /// carries attachment scheme markers but not the attachment content, which is needed to
     /// reconstruct the note's ID.
     ///
-    /// Returns the resolved note blocks and the fetched public note bodies. Fetched private-note
-    /// attachments are written back onto the matching [`CommittedNote`] in `blocks`.
+    /// Returns the resolved note blocks, the fetched public note bodies, and the fetched
+    /// private-note attachment content (keyed by note ID).
     async fn sync_notes_with_details(
         &self,
         block_from: BlockNumber,
         block_to: BlockNumber,
         note_tags: &BTreeSet<NoteTag>,
     ) -> Result<SyncNotesResult, RpcError> {
-        let mut blocks = self.sync_notes(block_from, block_to, note_tags).await?;
+        let blocks = self.sync_notes(block_from, block_to, note_tags).await?;
 
         let note_ids: Vec<NoteId> = blocks
             .iter()
@@ -328,7 +328,7 @@ pub trait NodeRpcClient: Send + Sync {
         let mut public_notes = BTreeMap::new();
 
         // Private-note attachment content, keyed by note ID, resolved from the `GetNotesById`
-        // response and then folded into the matching committed notes below.
+        // response. Private notes without attachments do not appear here.
         let mut private_attachments: BTreeMap<NoteId, NoteAttachments> = BTreeMap::new();
 
         if !note_ids.is_empty() {
@@ -348,22 +348,11 @@ pub trait NodeRpcClient: Send + Sync {
             }
         }
 
-        // Resolve the fetched attachments onto the committed notes that carry them. Notes without
-        // fetched attachments are left unresolved (`attachments() == None`).
-        if !private_attachments.is_empty() {
-            for block in &mut blocks {
-                let resolved = core::mem::take(&mut block.notes)
-                    .into_iter()
-                    .map(|(id, note)| match private_attachments.remove(&id) {
-                        Some(attachments) => (id, note.with_attachments(attachments)),
-                        None => (id, note),
-                    })
-                    .collect();
-                block.notes = resolved;
-            }
-        }
-
-        Ok(SyncNotesResult { blocks, public_notes })
+        Ok(SyncNotesResult {
+            blocks,
+            public_notes,
+            private_attachments,
+        })
     }
 
     /// Fetches the nullifiers corresponding to a list of prefixes using the

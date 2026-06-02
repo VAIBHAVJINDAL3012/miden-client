@@ -15,7 +15,7 @@ use miden_protocol::account::{
 };
 use miden_protocol::block::{BlockHeader, BlockNumber};
 use miden_protocol::crypto::merkle::mmr::{MmrDelta, PartialMmr};
-use miden_protocol::note::{Note, NoteId, NoteTag, NoteType, Nullifier};
+use miden_protocol::note::{Note, NoteAttachments, NoteId, NoteTag, NoteType, Nullifier};
 use miden_protocol::transaction::InputNoteCommitment;
 use tracing::info;
 
@@ -56,6 +56,8 @@ struct RawStateSyncData {
     note_blocks: Vec<NoteSyncBlock>,
     /// Full note bodies for public notes, keyed by note ID.
     public_notes: BTreeMap<NoteId, Note>,
+    /// Attachment content for private notes that carry attachments, keyed by note ID.
+    private_attachments: BTreeMap<NoteId, NoteAttachments>,
     /// Account commitment updates for the synced range.
     account_commitment_updates: Vec<(AccountId, Word)>,
     /// Transaction inclusions for the synced range.
@@ -374,6 +376,7 @@ impl StateSync {
             chain_tip_header: chain_mmr_info.block_header,
             note_blocks: sync_notes_result.blocks,
             public_notes: sync_notes_result.public_notes,
+            private_attachments: sync_notes_result.private_attachments,
             account_commitment_updates,
             transactions,
             nullifiers,
@@ -444,6 +447,7 @@ impl StateSync {
             mmr_delta,
             chain_tip_header,
             note_blocks,
+            private_attachments,
             nullifiers,
             transactions,
             ..
@@ -476,6 +480,7 @@ impl StateSync {
                     block.notes,
                     &block.block_header,
                     public_note_records,
+                    &private_attachments,
                 )
                 .await?;
 
@@ -823,13 +828,16 @@ impl StateSync {
     /// * Tracked notes that were nullified by an external transaction.
     ///
     /// The `public_notes` parameter provides cached public note details for the current sync
-    /// iteration so the node is only queried once per batch.
+    /// iteration so the node is only queried once per batch. The `private_attachments` parameter
+    /// carries attachment content resolved for private notes, keyed by note ID; it is joined to
+    /// each committed note by ID so the stored record reconstructs the correct note ID.
     async fn note_state_sync(
         &self,
         note_updates: &mut NoteUpdateTracker,
         note_inclusions: BTreeMap<NoteId, CommittedNote>,
         block_header: &BlockHeader,
         public_notes: &BTreeMap<NoteId, InputNoteRecord>,
+        private_attachments: &BTreeMap<NoteId, NoteAttachments>,
     ) -> Result<bool, ClientError> {
         // `found_relevant_note` tracks whether we want to persist the block header in the end
         let mut found_relevant_note = false;
@@ -845,8 +853,12 @@ impl StateSync {
                     // Only mark the downloaded block header as relevant if we are talking about
                     // an input note (output notes get marked as committed but we don't need the
                     // block for anything there)
-                    found_relevant_note |= note_updates
-                        .apply_committed_note_state_transitions(&committed_note, block_header)?;
+                    let attachments = private_attachments.get(committed_note.note_id());
+                    found_relevant_note |= note_updates.apply_committed_note_state_transitions(
+                        &committed_note,
+                        block_header,
+                        attachments,
+                    )?;
                 },
                 NoteUpdateAction::Insert(public_note) => {
                     found_relevant_note = true;
