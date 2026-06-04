@@ -211,21 +211,15 @@ pub struct NoteSyncBlock {
 
 /// Result of [`NodeRpcClient::sync_notes_with_details`](crate::rpc::NodeRpcClient::sync_notes_with_details).
 ///
-/// Contains fully-resolved note blocks (all metadata filled), full note bodies for public notes,
-/// and attachment content for private notes that carry attachments. The block data is kept apart
-/// from the resolved content to avoid duplication: blocks carry metadata + inclusion proofs, while
-/// `public_notes` carries public note content (scripts, assets, recipient) and
-/// `private_attachments` carries private-note attachment content — both keyed by note ID.
+/// Contains fully-resolved note blocks. Blocks carry note metadata + inclusion proofs, while
+/// `public_notes` carries public note full content and `private_attachments` carries private-note
+/// attachment content.
 pub struct SyncNotesResult {
     /// Blocks containing matching notes with fully-resolved metadata.
     pub blocks: Vec<NoteSyncBlock>,
     /// Full note bodies for public notes, keyed by note ID.
     pub public_notes: BTreeMap<NoteId, Note>,
     /// Attachment content for private notes that carry attachments, keyed by note ID.
-    ///
-    /// A `SyncNotes` response carries only the attachment scheme markers and commitment (in the
-    /// metadata); the content is resolved separately via `GetNotesById`. Private notes without
-    /// attachments do not appear here.
     pub private_attachments: BTreeMap<NoteId, NoteAttachments>,
 }
 

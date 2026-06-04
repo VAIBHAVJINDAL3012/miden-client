@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
-use miden_client::account::{AccountStorageMode, build_wallet_id};
+use miden_client::account::{AccountType, build_wallet_id};
 use miden_client::asset::{Asset, FungibleAsset};
 use miden_client::auth::RPO_FALCON_SCHEME_ID;
 use miden_client::keystore::Keystore;
@@ -56,28 +56,20 @@ pub async fn test_onchain_notes_flow(client_config: ClientConfig) -> Result<()> 
     // Create faucet account
     let (faucet_account, _) = insert_new_fungible_faucet(
         &mut client_1,
-        AccountStorageMode::Private,
+        AccountType::Private,
         &keystore_1,
         RPO_FALCON_SCHEME_ID,
     )
     .await?;
     // Create regular accounts
-    let (basic_wallet_1, ..) = insert_new_wallet(
-        &mut client_2,
-        AccountStorageMode::Private,
-        &keystore_2,
-        RPO_FALCON_SCHEME_ID,
-    )
-    .await?;
+    let (basic_wallet_1, ..) =
+        insert_new_wallet(&mut client_2, AccountType::Private, &keystore_2, RPO_FALCON_SCHEME_ID)
+            .await?;
 
     // Create regular accounts
-    let (basic_wallet_2, ..) = insert_new_wallet(
-        &mut client_3,
-        AccountStorageMode::Private,
-        &keystore_3,
-        RPO_FALCON_SCHEME_ID,
-    )
-    .await?;
+    let (basic_wallet_2, ..) =
+        insert_new_wallet(&mut client_3, AccountType::Private, &keystore_3, RPO_FALCON_SCHEME_ID)
+            .await?;
     client_1.sync_state().await?;
     client_2.sync_state().await?;
 
@@ -193,27 +185,19 @@ pub async fn test_onchain_accounts(client_config: ClientConfig) -> Result<()> {
 
     let (faucet_account_header, secret_key) = insert_new_fungible_faucet(
         &mut client_1,
-        AccountStorageMode::Public,
+        AccountType::Public,
         &keystore_1,
         RPO_FALCON_SCHEME_ID,
     )
     .await?;
 
-    let (first_regular_account, ..) = insert_new_wallet(
-        &mut client_1,
-        AccountStorageMode::Private,
-        &keystore_1,
-        RPO_FALCON_SCHEME_ID,
-    )
-    .await?;
+    let (first_regular_account, ..) =
+        insert_new_wallet(&mut client_1, AccountType::Private, &keystore_1, RPO_FALCON_SCHEME_ID)
+            .await?;
 
-    let (second_client_first_regular_account, ..) = insert_new_wallet(
-        &mut client_2,
-        AccountStorageMode::Private,
-        &keystore_2,
-        RPO_FALCON_SCHEME_ID,
-    )
-    .await?;
+    let (second_client_first_regular_account, ..) =
+        insert_new_wallet(&mut client_2, AccountType::Private, &keystore_2, RPO_FALCON_SCHEME_ID)
+            .await?;
 
     let target_account_id = first_regular_account.id();
     let second_client_target_account_id = second_client_first_regular_account.id();
@@ -376,7 +360,7 @@ pub async fn test_import_account_by_id(client_config: ClientConfig) -> Result<()
 
     let (faucet_account_header, _) = insert_new_fungible_faucet(
         &mut client_1,
-        AccountStorageMode::Public,
+        AccountType::Public,
         &keystore_1,
         RPO_FALCON_SCHEME_ID,
     )
@@ -384,7 +368,7 @@ pub async fn test_import_account_by_id(client_config: ClientConfig) -> Result<()
 
     let (first_regular_account, secret_key) = insert_new_wallet_with_seed(
         &mut client_1,
-        AccountStorageMode::Public,
+        AccountType::Public,
         &keystore_1,
         user_seed,
         RPO_FALCON_SCHEME_ID,
@@ -407,7 +391,7 @@ pub async fn test_import_account_by_id(client_config: ClientConfig) -> Result<()
 
     // Import the public account by id
     let built_wallet_id =
-        build_wallet_id(user_seed, &secret_key.public_key(), AccountStorageMode::Public)?;
+        build_wallet_id(user_seed, &secret_key.public_key(), AccountType::Public)?;
     assert_eq!(built_wallet_id, first_regular_account.id());
     client_2.import_account_by_id(built_wallet_id).await?;
     keystore_2.add_key(&secret_key, built_wallet_id).await?;
@@ -460,18 +444,14 @@ pub async fn test_import_watched_account_by_id(client_config: ClientConfig) -> R
 
     let (faucet_account, _) = insert_new_fungible_faucet(
         &mut client_1,
-        AccountStorageMode::Public,
+        AccountType::Public,
         &keystore_1,
         RPO_FALCON_SCHEME_ID,
     )
     .await?;
-    let (wallet, _) = insert_new_wallet(
-        &mut client_1,
-        AccountStorageMode::Public,
-        &keystore_1,
-        RPO_FALCON_SCHEME_ID,
-    )
-    .await?;
+    let (wallet, _) =
+        insert_new_wallet(&mut client_1, AccountType::Public, &keystore_1, RPO_FALCON_SCHEME_ID)
+            .await?;
     let wallet_id = wallet.id();
     let faucet_id = faucet_account.id();
 
@@ -601,19 +581,15 @@ pub async fn test_consumed_note_ordering(client_config: ClientConfig) -> Result<
 
     let (faucet_account, _) = insert_new_fungible_faucet(
         &mut client,
-        AccountStorageMode::Private,
+        AccountType::Private,
         &keystore,
         RPO_FALCON_SCHEME_ID,
     )
     .await?;
 
-    let (wallet_account, ..) = insert_new_wallet(
-        &mut client,
-        AccountStorageMode::Private,
-        &keystore,
-        RPO_FALCON_SCHEME_ID,
-    )
-    .await?;
+    let (wallet_account, ..) =
+        insert_new_wallet(&mut client, AccountType::Private, &keystore, RPO_FALCON_SCHEME_ID)
+            .await?;
 
     client.sync_state().await?;
 
@@ -762,20 +738,16 @@ pub async fn test_sync_note_with_attachment(client_config: ClientConfig) -> Resu
     // Create faucet in client 1
     let (faucet_account, _) = insert_new_fungible_faucet(
         &mut client_1,
-        AccountStorageMode::Private,
+        AccountType::Private,
         &keystore_1,
         RPO_FALCON_SCHEME_ID,
     )
     .await?;
 
     // Create wallet in client 2
-    let (wallet, ..) = insert_new_wallet(
-        &mut client_2,
-        AccountStorageMode::Private,
-        &keystore_2,
-        RPO_FALCON_SCHEME_ID,
-    )
-    .await?;
+    let (wallet, ..) =
+        insert_new_wallet(&mut client_2, AccountType::Private, &keystore_2, RPO_FALCON_SCHEME_ID)
+            .await?;
 
     client_1.sync_state().await?;
     client_2.sync_state().await?;
@@ -872,13 +844,19 @@ pub async fn test_get_notes_by_id_returns_private_note_attachments(
     client.sync_state().await?;
 
     let (account, _) =
-        insert_new_wallet(&mut client, AccountStorageMode::Public, &keystore, RPO_FALCON_SCHEME_ID)
+        insert_new_wallet(&mut client, AccountType::Public, &keystore, RPO_FALCON_SCHEME_ID)
             .await?;
 
     let target = NetworkAccountTarget::new(account.id(), NoteExecutionHint::Always)?;
     let attachments = NoteAttachments::new(vec![target.into()])?;
-    let note =
-        P2idNote::create(account.id(), account.id(), vec![], note_type, attachments, client.rng())?;
+    let note = P2idNote::create(
+        account.id(),
+        account.id(),
+        vec![],
+        NoteType::Private,
+        attachments,
+        client.rng(),
+    )?;
     let note_id = note.id();
 
     let tx_request = TransactionRequestBuilder::new().own_output_notes(vec![note]).build()?;

@@ -285,11 +285,17 @@ pub trait NodeRpcClient: Send + Sync {
         Ok(FetchedAccount::new_public(account, summary))
     }
 
-    /// Fetches the notes related to the specified tags using the `/SyncNotes` RPC endpoint.
+    /// Fetches notes related to the specified tags using the `/SyncNotes` RPC endpoint,
+    /// paginating over the full block range and returning, in block-number order, every block in
+    /// that range that contains at least one note matching the requested tags.
     ///
     /// - `block_from`: The starting block number for the range (inclusive).
     /// - `block_to`: The ending block number for the range (inclusive).
     /// - `note_tags` is the set of tags used to filter the notes the client is interested in.
+    ///
+    /// Notes with attachments will have header-only metadata after this call; use
+    /// [`NodeRpcClient::sync_notes_with_details`] to also resolve their full metadata and
+    /// fetch public note bodies in a single follow-up call.
     async fn sync_notes(
         &self,
         block_from: BlockNumber,
@@ -360,9 +366,7 @@ pub trait NodeRpcClient: Send + Sync {
     ///
     /// - `prefix` is a list of nullifiers prefixes to search for.
     /// - `block_from`: The starting block number for the range (inclusive).
-    /// - `block_to`: The ending block number for the range (inclusive). Callers that want to scan
-    ///   up to the chain tip should resolve it first (e.g. via
-    ///   [`NodeRpcClient::get_block_header_by_number`] with `None`).
+    /// - `block_to`: The ending block number for the range (inclusive).
     async fn sync_nullifiers(
         &self,
         prefix: &[u16],
